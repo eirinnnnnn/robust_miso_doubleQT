@@ -32,7 +32,7 @@ def initialize_B(constants):
     ## initialize precoders
     V = []
     for _ in range(K):
-        V.append(np.random.normal(0, 0.5, (Nr, Nt)) + 1j*np.random.normal(0, 0.5, (Nr, Nt))) /  
+        V.append(np.random.normal(0, 0.5, (Nr, Nt)) + 1j*np.random.normal(0, 0.5, (Nr, Nt))) / Pt 
 
 
     B = {

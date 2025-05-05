@@ -41,11 +41,13 @@ class VariablesA:
 class VariablesB:
     def __init__(self, constants: GlobalConstants):
         self.LAMB = np.ones(constants.K)
-        self.ALPHA = 0.5
-        self.BETA = 0.5
+        self.ALPHA = 1
+        self.BETA = 1
         self.t = 0
 
+        self.W = [np.random.randn(constants.NR, 1) + 1j*np.random.randn(constants.NR, 1) for _ in range(constants.K)]
         self.V = []
+
         total_power = 0
 
         for _ in range(constants.K):
@@ -57,3 +59,49 @@ class VariablesB:
 
         scaling_factor = np.sqrt(constants.PT / total_power)
         self.V = [scaling_factor * V_k for V_k in self.V]
+def initialize_t(A, B, constants):
+    """
+    Initialize t to be feasible (t <= sum_k g1_k).
+    """
+
+    K = constants.K
+    sigma2 = constants.SIGMA**2
+
+    total_g1 = 0
+    for k in range(K):
+        Nr = constants.NR
+        Nt = constants.NT
+        H_hat_k = constants.H_HAT[k]
+        delta_k = A.delta[k].reshape(Nr, Nt)
+        H_k = H_hat_k + delta_k
+
+        v_k = B.V[k]
+        w_k = B.W[k]
+
+        # Interference
+        interference = sigma2 * np.eye(Nr, dtype=complex)
+        for n in range(K):
+            if n != k:
+                H_hat_n = constants.H_HAT[n]
+                delta_n = A.delta[n].reshape(Nr, Nt)
+                H_n = H_hat_n + delta_n
+                v_n = B.V[n]
+                interference += H_n @ (v_n @ v_n.conj().T) @ H_n.conj().T
+
+        SINR_k = np.real(w_k.conj().T @ H_k @ v_k + v_k.conj().T @ H_k.conj().T @ w_k \
+                - w_k.conj().T @ interference @ w_k).item()
+
+        SINR_k = max(SINR_k, -0.99)  # clip
+
+        g1_k = np.log(1 + SINR_k)
+
+        delta_penalty = (delta_k.reshape(-1,1).conj().T @ constants.B @ delta_k.reshape(-1,1)).real.item() - 1
+        g1_k += B.LAMB[k] * delta_penalty
+
+        total_g1 += g1_k
+
+    # Initialize t
+    B.t = 0.5 * total_g1  # for example
+    print(f"Initialized t to {B.t:.6e} to ensure feasibility.")
+
+    return B
