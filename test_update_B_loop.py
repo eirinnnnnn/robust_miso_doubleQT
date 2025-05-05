@@ -12,7 +12,7 @@ def test_update_B_loop():
     B = initialize_t(A, B, constants)
     # === Now test B inner loop
     print("=== Starting Algorithm 2 (B update) ===")
-    B, lagrangian_B_trajectory = update_B_loop(A, B, constants)
+    B, _, _ = update_B_loop(A, B, constants)
 
     print("=== Finished Algorithm 2 ===")
     print(f"Final outer Lagrangian: {lagrangian_B_trajectory[-1]:.6e}")

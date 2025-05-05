@@ -314,7 +314,7 @@ def compute_gamma_k(A, B, constants, k):
     v_k = V[k]  # (Nr x 1)
 
     # Step 1: Compute 2*Re(w_k^H H_k v_k)
-    term1 = 2 * np.real(w_k.conj().T @ H_k @ v_k)
+    term1 = 2 * np.real(w_k.conj().T @ H_k @ v_k).item()
 
     # Step 2: Compute w_k^H (sigma^2 I + interference) w_k
     interference = sigma2 * np.eye(Nr, dtype=complex)
@@ -353,28 +353,29 @@ def update_B_loop(A, B, constants, outer_tol=1e-10, max_outer_iter=10000, inner_
     for outer_iter in range(max_outer_iter):
         # === Micro inner loop: update (w, v) alternately ===
         prev_micro_lagrangian = None
-        for micro_iter in range(max_inner_iter):
-            # Update w
-            for k in range(K):
-                w_k = update_w(A, B, constants, k)
-                B.W[k] = w_k  # Store updated w_k
+        # for micro_iter in range(max_inner_iter):
+        #     # Update w
+        #     for k in range(K):
+        #         w_k = update_w(A, B, constants, k)
+        #         B.W[k] = w_k  # Store updated w_k
 
-            # Update v
-            for n in range(K):
-                B.V[n] = update_v(A, B, constants, n)
+        #     # Update v
+        #     for n in range(K):
+        #         B.V[n] = update_v(A, B, constants, n)
 
-            # Compute Lagrangian after w,v update
-            current_micro_lagrangian = compute_lagrangian_B(A, B, constants)
-            print(f"    [Micro iter {micro_iter+1}] Micro-lagrangian = {current_micro_lagrangian:.6e}")
+        #     # Compute Lagrangian after w,v update
+        #     current_micro_lagrangian = compute_lagrangian_B(A, B, constants)
+        #     print(f"    [Micro iter {micro_iter+1}] Micro-lagrangian = {current_micro_lagrangian:.6e}")
 
-            if prev_micro_lagrangian is not None:
-                delta_micro = abs(current_micro_lagrangian - prev_micro_lagrangian)
-                print(f"        Micro Lagrangian change = {delta_micro:.6e}")
-                if delta_micro < inner_tol:
-                    print(f"    ✅ Micro-inner loop converged at iteration {micro_iter+1}.")
-                    break
+        #     if prev_micro_lagrangian is not None:
+        #         delta_micro = abs(current_micro_lagrangian - prev_micro_lagrangian)
+        #         print(f"        Micro Lagrangian change = {delta_micro:.6e}")
+        #         if delta_micro < inner_tol:
+        #             print(f"    ✅ Micro-inner loop converged at iteration {micro_iter+1}.")
+        #             break
 
-            prev_micro_lagrangian = current_micro_lagrangian
+        #     prev_micro_lagrangian = current_micro_lagrangian
+        B, _, _ = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
 
         # === Step 2: Update lagrangian multipliers ===
         B = update_lagrangian_variables(A, B, constants)
@@ -527,3 +528,58 @@ def assert_finite(x, label="variable"):
         print(x)
         raise ValueError(f"{label} became NaN or inf")
 
+def inner_update_w_v(A, B, constants, max_iter=50000, tol=1e-5):
+    """
+    Alternating updates of (w_k, v_k) for all users until convergence of all gamma_k.
+
+    Args:
+        A: VariablesA object
+        B: VariablesB object
+        constants: GlobalConstants object
+        max_iter: maximum number of outer iterations
+        tol: stopping threshold for convergence (applied to total change in gamma)
+
+    Returns:
+        B: updated VariablesB object (with new W and V)
+        gamma_history: list of gamma_k vectors per iteration, shape = (iter, K)
+    """
+    K = constants.K
+    gamma_history = []
+    prev_gamma = np.zeros(K)
+    signal_log = []
+
+    for i in range(max_iter):
+        current_gamma = np.zeros(K)
+        current_signal = np.zeros(K)
+
+        w_k_arr = []
+        v_k_arr = []
+        for k in range(K):
+            w_k = update_w(A, B, constants, k)
+            w_k_arr.append(w_k)
+        B.W = w_k_arr
+        for k in range(K):
+            v_k = update_v(A, B, constants, k)
+            v_k_arr.append(v_k)
+        B.V = v_k_arr
+        ##signal monitor
+        for k in range(K):
+            H_hat_k = constants.H_HAT[k]
+            delta_k = A.delta[k].reshape(constants.NR, constants.NT)
+            H_k = H_hat_k + delta_k
+            signal_term = np.real(np.vdot(w_k, H_k @ v_k)).item()
+            
+            gamma_k = compute_gamma_k(A, B, constants, k)
+            current_gamma[k] = gamma_k.real if np.iscomplexobj(gamma_k) else gamma_k
+            current_signal[k] = signal_term
+        B.V = v_k_arr
+
+        gamma_history.append(current_gamma.copy())
+        signal_log.append(current_signal.copy())
+        delta = np.linalg.norm(current_gamma - prev_gamma)
+
+        if delta < tol:
+            break
+        prev_gamma = current_gamma
+
+    return B, gamma_history, signal_log
