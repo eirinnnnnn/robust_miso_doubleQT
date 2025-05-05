@@ -336,7 +336,7 @@ def compute_gamma_k(A, B, constants, k):
     #     gamma_k = 1e-6
     return gamma_k
 
-def update_B_loop(A, B, constants, outer_tol=1e-10, max_outer_iter=10000, inner_tol=1e-4, max_inner_iter=500):
+def update_B_loop(A, B, constants, outer_tol=1e-6, max_outer_iter=10, inner_tol=1e-4, max_inner_iter=500):
     """
     Outer loop for updating B (V, Lambda, t, alpha, beta).
     Inside each outer iteration, run a micro-inner loop on (w, v) until micro-lagrangian converges.
@@ -375,8 +375,11 @@ def update_B_loop(A, B, constants, outer_tol=1e-10, max_outer_iter=10000, inner_
         #             break
 
         #     prev_micro_lagrangian = current_micro_lagrangian
-        B, _, _ = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
-
+        B, gamma_history, _ = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
+        gamma_history = np.array(gamma_history)  # shape: (iterations, K)
+        for k in range(constants.K):
+            print(f"[B inner Final] γ_k[{k}] = {gamma_history[-1, k]:.4e}, w_k norm = {np.linalg.norm(B.W[k]):.4e}, v_k norm = {np.linalg.norm(B.V[k]):.4e}")
+        
         # === Step 2: Update lagrangian multipliers ===
         B = update_lagrangian_variables(A, B, constants)
 
@@ -401,7 +404,36 @@ def update_B_loop(A, B, constants, outer_tol=1e-10, max_outer_iter=10000, inner_
 
     return B, lagrangian_trajectory
 
-import numpy as np
+
+def compute_g1_k(A, B, constants, k):
+    """
+    Compute the full quadratic-transformed utility g_{1,k}^{QT} for user k:
+        g_{1,k}^{QT} = log(1 + gamma_k) + lambda_k (delta_k^H B delta_k - 1)
+
+    Args:
+        A: VariablesA object (contains delta_k)
+        B: VariablesB object (contains W, V, LAMB, and B matrix)
+        constants: GlobalConstants object
+        k: user index
+
+    Returns:
+        g1_k: float, the value of the transformed rate penalty term for user k
+    """
+    gamma_k = compute_gamma_k(A, B, constants, k)
+    delta_k = A.delta[k]  # shape (Nt*Nr, 1)
+    lambda_k = B.LAMB[k]
+    B_matrix = constants.B
+
+    # First term: log(1 + gamma_k), with domain protection
+    if np.real(gamma_k) < -1.0:
+        log_term = -np.inf
+    else:
+        log_term = np.log(np.real(gamma_k))
+
+    # Second term: lambda_k (delta^H B delta - 1)
+    penalty_term = lambda_k * (np.vdot(delta_k, B_matrix @ delta_k).real - 1)
+
+    return log_term + penalty_term
 
 def compute_lagrangian_B(A, B, constants):
     """
@@ -429,28 +461,32 @@ def compute_lagrangian_B(A, B, constants):
         v_k = B.V[k]
         w_k = B.W[k]
 
-        # === Compute SINR-related term
-        interference = sigma2 * np.eye(Nr, dtype=complex)
-        for n in range(K):
-            if n != k:
-                H_hat_n = constants.H_HAT[n]
-                delta_n = A.delta[n].reshape(Nr, Nt)
-                H_n = H_hat_n + delta_n
-                v_n = B.V[n]
-                interference += H_n @ (v_n @ v_n.conj().T) @ H_n.conj().T
+        # # === Compute SINR-related term
+        # interference = sigma2 * np.eye(Nr, dtype=complex)
+        # for n in range(K):
+        #     if n != k:
+        #         H_hat_n = constants.H_HAT[n]
+        #         delta_n = A.delta[n].reshape(Nr, Nt)
+        #         H_n = H_hat_n + delta_n
+        #         v_n = B.V[n]
+        #         interference += H_n @ (v_n @ v_n.conj().T) @ H_n.conj().T
 
-        SINR_k = np.real(w_k.conj().T @ H_k @ v_k + v_k.conj().T @ H_k.conj().T @ w_k \
-                - w_k.conj().T @ interference @ w_k).item()
+        # SINR_k = np.real(w_k.conj().T @ H_k @ v_k + v_k.conj().T @ H_k.conj().T @ w_k \
+        #         - w_k.conj().T @ interference @ w_k).item()
 
-        log_arg = 1+SINR_k
-        g1_k = np.log(log_arg)
+        # log_arg = 1+SINR_k
+        # g1_k = np.log(log_arg)
 
-        # === Add the penalty term (delta_k constraint)
-        delta_penalty = (delta_k.reshape(-1,1).conj().T @ constants.B @ delta_k.reshape(-1,1)).real.item() - 1
+        # # === Add the penalty term (delta_k constraint)
+        # delta_penalty = (delta_k.reshape(-1,1).conj().T @ constants.B @ delta_k.reshape(-1,1)).real.item() - 1
 
-        g1_k += lamb[k] * delta_penalty
+        # g1_k += lamb[k] * delta_penalty
 
-        total_g1 += g1_k
+        # total_g1 += g1_k
+        total_g1 = 0
+        for k in range(K):
+            g1_k = compute_g1_k(A, B, constants, k)
+            total_g1 += g1_k
 
     # === Power penalty term
     total_power = sum(np.linalg.norm(B.V[k])**2 for k in range(K))
@@ -459,7 +495,7 @@ def compute_lagrangian_B(A, B, constants):
     lagrangian = t + alpha * (total_g1 - t) + beta * (Pt - total_power)
 
     return lagrangian
-def update_lagrangian_variables(A, B, constants, eta_t=0.02, eta_lambda=0.02, eta_alpha=0.001, eta_beta=0.01):
+def update_lagrangian_variables(A, B, constants, eta_t=0.01, eta_lambda=0.01, eta_alpha=0.01, eta_beta=0.01):
     """
     Perform gradient ascent on t, lambda_k, alpha, beta.
     """
@@ -474,7 +510,8 @@ def update_lagrangian_variables(A, B, constants, eta_t=0.02, eta_lambda=0.02, et
     lamb = B.LAMB
 
     # === Step 1: compute g1_k for each user
-    g1_list = []
+    # g1_list = []
+    total_g1 = 0
     for k in range(K):
         Nr = constants.NR
         Nt = constants.NT
@@ -485,26 +522,29 @@ def update_lagrangian_variables(A, B, constants, eta_t=0.02, eta_lambda=0.02, et
         v_k = B.V[k]
         w_k = B.W[k]
 
-        interference = sigma2 * np.eye(Nr, dtype=complex)
-        for n in range(K):
-            if n != k:
-                H_hat_n = constants.H_HAT[n]
-                delta_n = A.delta[n].reshape(Nr, Nt)
-                H_n = H_hat_n + delta_n
-                v_n = B.V[n]
-                interference += H_n @ (v_n @ v_n.conj().T) @ H_n.conj().T
+        for a in range(K):
+            g1_k = compute_g1_k(A, B, constants, a)
+            total_g1 += g1_k
+    #     interference = sigma2 * np.eye(Nr, dtype=complex)
+    #     for n in range(K):
+    #         if n != k:
+    #             H_hat_n = constants.H_HAT[n]
+    #             delta_n = A.delta[n].reshape(Nr, Nt)
+    #             H_n = H_hat_n + delta_n
+    #             v_n = B.V[n]
+    #             interference += H_n @ (v_n @ v_n.conj().T) @ H_n.conj().T
 
-        SINR_k = np.real(w_k.conj().T @ H_k @ v_k + v_k.conj().T @ H_k.conj().T @ w_k \
-                - w_k.conj().T @ interference @ w_k).item()
+    #     SINR_k = np.real(w_k.conj().T @ H_k @ v_k + v_k.conj().T @ H_k.conj().T @ w_k \
+    #             - w_k.conj().T @ interference @ w_k).item()
 
-        g1_k = np.log(1 + SINR_k)
+    #     g1_k = np.log(1 + SINR_k)
 
-        delta_penalty = (delta_k.reshape(-1,1).conj().T @ constants.B @ delta_k.reshape(-1,1)).real.item() - 1
-        g1_k += lamb[k] * delta_penalty
+    #     delta_penalty = (delta_k.reshape(-1,1).conj().T @ constants.B @ delta_k.reshape(-1,1)).real.item() - 1
+    #     g1_k += lamb[k] * delta_penalty
 
-        g1_list.append(g1_k)
+    #     g1_list.append(g1_k)
 
-    total_g1 = sum(g1_list)
+    # total_g1 = sum(g1_list)
 
     # === Step 2: update t
     B.t = B.t + eta_t * (1 - alpha)
