@@ -63,7 +63,7 @@ def inner_update_w_v(A, B, constants, max_iter=50000, tol=1e-5):
 
 def test_inner_update_w_v_loop():
     # === Initialization ===
-    constants = GlobalConstants(Nt=16, Nr=2, K=2, Pt=2)    
+    constants = GlobalConstants(Nt=16, Nr=2, K=2, Pt=100000)    
     A = VariablesA(constants)
     B = VariablesB(constants)
     B = initialize_t(A, B, constants)
