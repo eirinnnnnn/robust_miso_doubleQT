@@ -3,7 +3,7 @@ from update_functions import update_A_loop, update_B_loop
 
 def test_update_B_loop():
     # === Setup constants and variables
-    constants = GlobalConstants(snr_db=10, snrest_db=11, Nt=16, Nr=8, K=8, Pt=100)
+    constants = GlobalConstants(snr_db=10, snrest_db=1, Nt=16, Nr=8, K=8, Pt=100)
     A = VariablesA(constants)
     B = VariablesB(constants)
 

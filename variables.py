@@ -108,7 +108,7 @@
 #     return B
 import numpy as np
 from update_functions import compute_g1_k
-
+from scipy.stats import chi2
 class GlobalConstants:
     def __init__(self, snr_db=10, snrest_db=11, Nt=4, Nr=4, K=4, Pt=16):
         self.NT = Nt
@@ -121,6 +121,7 @@ class GlobalConstants:
 
         self.SNREST_DB = snrest_db
         self.SIGMAEST = (10 ** (-snrest_db / 20))
+        r2 = chi2.ppf(0.9, df=Nt*Nr*2)
 
         # Generate K channel realizations
         self.H_HAT = []
@@ -130,8 +131,10 @@ class GlobalConstants:
             self.H_HAT.append(h_real + 1j * h_imag)
         self.H_HAT = np.array(self.H_HAT)  # shape (K, Nr, Nt)
 
-        # Generate B matrix (identity scaled by sigma estimate)
-        self.B = np.eye(Nt * Nr) / self.SIGMAEST**2
+        # self.B = np.eye(Nt * Nr) * (1 + 1 / self.SIGMAEST**2) / r2
+        self.B = np.eye(Nt * Nr)  / (self.SIGMAEST**2) 
+        # self.B = np.eye(Nt * Nr) * (1 + self.SNREST_DB) / (r2)
+
 
 class VariablesA:
     def __init__(self, constants: GlobalConstants):
