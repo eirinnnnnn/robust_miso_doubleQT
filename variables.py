@@ -132,8 +132,13 @@ class GlobalConstants:
         self.H_HAT = np.array(self.H_HAT)  # shape (K, Nr, Nt)
 
         # self.B = np.eye(Nt * Nr) * (1 + 1 / self.SIGMAEST**2) / r2
-        self.B = np.eye(Nt * Nr)  / (self.SIGMAEST**2) 
-        # self.B = np.eye(Nt * Nr) * (1 + self.SNREST_DB) / (r2)
+        # self.B = np.eye(Nt * Nr)  / (self.SIGMAEST**2) 
+        self.B = (1 + 1 / self.SIGMAEST**2) / r2 * np.eye(Nt * Nr)
+
+
+        # self.B = np.eye(Nt * Nr)*10000 
+        
+        print(f"self.B: {self.B}")
 
 
 class VariablesA:
@@ -149,6 +154,28 @@ class VariablesA:
                       + 1j * np.random.normal(0, constants.SIGMAEST/np.sqrt(2), (constants.NR, constants.NT))
             self.Delta.append(Delta_k)
             self.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
+
+        # B_inv_sqrt = np.sqrt(1 / np.diag(constants.B))  # since B is diagonal
+
+        # for _ in range(constants.K):
+        #     dim = constants.NT * constants.NR
+
+        #     # Sample z from complex normal
+        #     z_real = np.random.normal(0, 1, (dim, 1))
+        #     z_imag = np.random.normal(0, 1, (dim, 1))
+        #     z = z_real + 1j * z_imag
+
+        #     z = z / np.linalg.norm(z)  # Project to unit complex sphere
+
+        #     # Sample radius uniformly within unit ball (real 2N-dim volume measure)
+        #     # r = np.random.rand() ** (1 / dim)
+        #     # r = 1
+        #     # delta_vec = r * z * B_inv_sqrt.reshape(-1, 1)  # elementwise scaling
+
+        #     Delta_k = delta_vec.reshape(constants.NR, constants.NT)
+        #     self.Delta.append(Delta_k)
+        #     self.delta.append(delta_vec)
+        #     print(np.real(delta_vec.conj().T @ constants.B @ delta_vec))
 
 class VariablesB:
     def __init__(self, constants: GlobalConstants):

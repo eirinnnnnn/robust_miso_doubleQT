@@ -16,6 +16,7 @@ def update_A(A, B, constants):
         # === Update delta_k given updated y_k ===
         A.delta[k] = update_delta_k(A.y[k], A.delta[k], B, constants, k)
 
+
     # === Metric: sum of norm changes ===
     metric = 0
     for k in range(K):
@@ -24,7 +25,7 @@ def update_A(A, B, constants):
     metric = np.sqrt(metric)
 
     return A, metric
-def update_A_loop(A, B, constants, inner_tol=1e-3, max_inner_iter=1000, plot_lagrangian=True):
+def update_A_loop(A, B, constants, inner_tol=1e-3, max_inner_iter=100, plot_lagrangian=True):
     """
     Inner loop: Alternately update y_k and delta_k for all users
     until Lagrangian convergence or maximum iterations.
@@ -41,6 +42,8 @@ def update_A_loop(A, B, constants, inner_tol=1e-3, max_inner_iter=1000, plot_lag
 
             # === Update delta_k given updated y_k ===
             A.delta[k] = update_delta_k(A.y[k], A.delta[k], B, constants, k)
+            # print the average norm of delta, lambda 
+            print(f"delta_k[{k}] norm: {np.linalg.norm(A.delta[k]):.4e}, lambda_k[{k}] = {B.LAMB[k]:.4e}")
 
         # === Compute Lagrangian ===
         current_lagrangian = compute_lagrangian_A(A, B, constants)
@@ -96,9 +99,75 @@ def update_y_k(delta_k, B, constants, k):
 
     # Compute y_k
     v_k = V[k]  # (Nr x 1)
-    y_k = np.linalg.solve(interference, H_k @ v_k)  # (Nr x 1)
+    # y_k = np.linalg.solve(interference, H_k @ v_k)  # (Nr x 1)
+    rhs = H_k @ v_k  # (Nr x 1)
+    try:
+        y_k = np.linalg.solve(interference, rhs)
+    except np.linalg.LinAlgError:
+        y_k = np.linalg.pinv(interference) @ rhs
 
     return y_k
+def compute_ck(delta_k, B, constants, k):
+    """
+    Original SINR-based c_k: 
+    c_k = 1 + v_k^H H^H (sigma^2 I + interference)^-1 H v_k
+    """
+    Nr = constants.NR
+    Nt = constants.NT
+    sigma2 = constants.SIGMA ** 2
+
+    delta_k = delta_k.reshape(Nr, Nt)
+    H_k = constants.H_HAT[k] + delta_k
+    V = B.V
+    v_k = V[k]
+
+    # Construct interference matrix
+    R_int = sigma2 * np.eye(Nr, dtype=complex)
+    for n in range(constants.K):
+        if n != k:
+            v_n = V[n]
+            R_int += H_k @ v_n @ v_n.conj().T @ H_k.conj().T
+
+    # Compute c_k
+    Hv = H_k @ v_k
+    c_k = 1 + np.real(v_k.conj().T @ H_k.conj().T @ np.linalg.pinv(R_int) @ Hv).item()
+
+    return c_k
+def compute_ck_QT(delta_k, B, constants, k):
+    """
+    QT-based surrogate c_k:
+    c_k = 1 + 2 Re{ y^H H v } - y^H (sigma^2 I + interference) y
+    """
+    Nr = constants.NR
+    Nt = constants.NT
+    sigma2 = constants.SIGMA ** 2
+
+    delta_k = delta_k.reshape(Nr, Nt)
+    H_k = constants.H_HAT[k] + delta_k
+    V = B.V
+    v_k = V[k]
+
+    # Construct interference matrix
+    R_int = sigma2 * np.eye(Nr, dtype=complex)
+    for n in range(constants.K):
+        if n != k:
+            v_n = V[n]
+            R_int += H_k @ v_n @ v_n.conj().T @ H_k.conj().T
+
+    # Compute y_k = R_int^{-1} H_k v_k
+    rhs = H_k @ v_k
+    try:
+        y_k = np.linalg.solve(R_int, rhs)
+    except np.linalg.LinAlgError:
+        y_k = np.linalg.pinv(R_int) @ rhs
+
+    # Compute c_k_QT
+    signal_term = 2 * np.real(y_k.conj().T @ H_k @ v_k)
+    interference_term = np.real(y_k.conj().T @ R_int @ y_k)
+    c_k_QT = 1 + signal_term - interference_term
+
+    return c_k_QT.item()
+
 
 def update_delta_k(y_k, delta_k, B, constants, k):
     """
@@ -121,26 +190,30 @@ def update_delta_k(y_k, delta_k, B, constants, k):
     V = B.V  # List of (Nr x 1) precoders
     B_mat = constants.B  # (Nt*Nr x Nt*Nr)
     lambda_k = B.LAMB[k]  
-
+    # lambda_k = 1 
     # === Step 1: Rebuild H_k ===
     Delta_k = delta_k.reshape(Nr, Nt)  # Reshape (Nt*Nr,1) vector into (Nr,Nt) matrix
     H_k = H_hat_k + Delta_k
+    h_k = H_k.flatten()
 
     # === Step 2: Compute c_k ===
-    vk = V[k]  # (Nr x 1)
+    # vk = V[k]  # (Nr x 1)
 
-    interference = sigma2 * np.eye(Nr, dtype=complex)
-    for n in range(K):
-        if n != k:
-            vn = V[n]
-            interference += H_k @ (vn @ vn.conj().T) @ H_k.conj().T
+    # interference = sigma2 * np.eye(Nr, dtype=complex)
+    # for n in range(K):
+    #     if n != k:
+    #         vn = V[n]
+    #         interference += H_k @ (vn @ vn.conj().T) @ H_k.conj().T
 
-    c_k = 1 \
-        + 2 * np.real(y_k.conj().T @ H_k @ vk) \
-        - (y_k.conj().T @ interference @ y_k)
+    # c_k = 1 \
+    #     + 2 * np.real(y_k.conj().T @ H_k @ vk) \
+    #     - (y_k.conj().T @ interference @ y_k)
 
-    c_k = c_k.item()  # ensure scalar
-
+    # c_k = c_k.item()  # ensure scalar
+    # c1 = compute_ck(delta_k, B, constants, k)
+    c2 = compute_ck_QT(delta_k, B, constants, k)
+    # print(f"[k={k}] c_k = {c1:.6e}, c_k_QT = {c2:.6e}, diff = {abs(c1 - c2):.2e}")
+    c_k = c2
     # === Step 3: Compute all alpha_n ===
     alpha_list = []
     for n in range(K):
@@ -152,13 +225,18 @@ def update_delta_k(y_k, delta_k, B, constants, k):
     grad = alpha_list[k]
     for n in range(K):
         if n != k:
-            grad -= (alpha_list[n].conj().T @ delta_k) * alpha_list[n]
+            grad -= (alpha_list[n].conj().T @ h_k) * alpha_list[n]
     grad /= c_k
 
     # === Step 5: Update delta_k ===
-    delta_k_star = -np.linalg.solve(B_mat, grad) / lambda_k  # (Nt*Nr x 1)
+    quad_form = np.real(delta_k.conj().T @ constants.B @ delta_k).item()
+    print(f"grad_norm = {np.linalg.norm(grad):.4e}, quad_norm = {quad_form:.4e}")
+    delta_k = -np.linalg.solve(B_mat, grad) / lambda_k  # (Nt*Nr x 1)
+    # if quad_form > 1.0:
+    #     delta_k /= np.sqrt(quad_form)
 
-    return delta_k_star
+
+    return delta_k
 
 def compute_rate_k(A, B, constants, k):
     """
@@ -481,6 +559,10 @@ def update_lagrangian_variables(A, B, constants):
 
         d_lamb = grad_lamb(lamb[k])
         eta_lamb = backtracking_line_search_max(obj_lamb, grad_lamb, lamb[k], d_lamb)
+        #### trying flooring
+        lambda_min = 1e-2
+        # B.LAMB[k] = max(lambda_min, B.LAMB[k] + eta_lamb * d_lamb[0])
+
         B.LAMB[k] = max(0, lamb[k] + eta_lamb * d_lamb[0])
 
     # === Step 3: update alpha ===
@@ -516,6 +598,55 @@ def update_lagrangian_variables(A, B, constants):
 
     return B
 
+
+def update_B_loop_robust(A, B, constants, outer_tol=1e-6, max_outer_iter=100, inner_tol=1e-4, max_inner_iter=500):
+    """
+    Outer loop for updating B (V, Lambda, t, alpha, beta).
+    Inside each outer iteration, run a micro-inner loop on (w, v) until micro-lagrangian converges.
+    """
+
+    K = constants.K
+    Nr = constants.NR
+    Pt = constants.PT
+
+    prev_outer_lagrangian = None
+    lagrangian_trajectory = []
+    converged = False
+
+    for outer_iter in range(max_outer_iter):
+        # update algorithm 1 (A update)
+        A, converged_A= update_A_loop(A, B, constants)
+
+        # algorithm 3 (B update)
+        B, gamma_history, _ , sinr_history= inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
+        gamma_history = np.array(gamma_history)  # shape: (iterations, K)
+        sinr_history= np.array(sinr_history)  # shape: (iterations, K)
+        for k in range(constants.K):
+            print(f"[B inner Final] γ_k_QT[{k}] = {gamma_history[-1, k]:.4e}, {sinr_history[-1, k]:.4e}, w_k norm = {np.linalg.norm(B.W[k]):.4e}, v_k norm = {np.linalg.norm(B.V[k]):.4e}")
+        
+        # === Step 2: Update lagrangian multipliers ===
+        B = update_lagrangian_variables(A, B, constants)
+
+        # === Step 3: Compute outer lagrangian ===
+        current_outer_lagrangian = compute_lagrangian_B(A, B, constants)
+        lagrangian_trajectory.append(current_outer_lagrangian)
+
+        print(f"[B Outer iter {outer_iter+1}] Outer Lagrangian = {current_outer_lagrangian:.6e}")
+
+        if prev_outer_lagrangian is not None:
+            delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
+            print(f"    Outer Lagrangian change = {delta_outer:.6e}")
+            if delta_outer < outer_tol:
+                print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
+                converged = True
+                break
+
+        prev_outer_lagrangian = current_outer_lagrangian
+
+    if not converged:
+        print(f"⚠️ Outer loop reached max iterations without full convergence.")
+
+    return B, lagrangian_trajectory
 
 ########################
 def update_B_loop(A, B, constants, outer_tol=1e-6, max_outer_iter=1, inner_tol=1e-4, max_inner_iter=500):
@@ -645,7 +776,7 @@ def compute_g1_k_QT(A, B, constants, k):
     # Second term: lambda_k (delta^H B delta - 1)
     penalty_term = lambda_k * (np.vdot(delta_k, B_matrix @ delta_k).real - 1)
 
-    return log_term + penalty_term
+    return log_term - penalty_term
 
 def compute_lagrangian_B(A, B, constants):
     """
@@ -663,38 +794,6 @@ def compute_lagrangian_B(A, B, constants):
 
     total_g1 = 0
     for k in range(K):
-        # === Build H_k
-        Nr = constants.NR
-        Nt = constants.NT
-        H_hat_k = constants.H_HAT[k]
-        delta_k = A.delta[k].reshape(Nr, Nt)
-        # H_k = H_hat_k + delta_k
-
-        # v_k = B.V[k]
-        # w_k = B.W[k]
-
-        # # === Compute SINR-related term
-        # interference = sigma2 * np.eye(Nr, dtype=complex)
-        # for n in range(K):
-        #     if n != k:
-        #         H_hat_n = constants.H_HAT[n]
-        #         delta_n = A.delta[n].reshape(Nr, Nt)
-        #         H_n = H_hat_n + delta_n
-        #         v_n = B.V[n]
-        #         interference += H_n @ (v_n @ v_n.conj().T) @ H_n.conj().T
-
-        # SINR_k = np.real(w_k.conj().T @ H_k @ v_k + v_k.conj().T @ H_k.conj().T @ w_k \
-        #         - w_k.conj().T @ interference @ w_k).item()
-
-        # log_arg = 1+SINR_k
-        # g1_k = np.log(log_arg)
-
-        # # === Add the penalty term (delta_k constraint)
-        # delta_penalty = (delta_k.reshape(-1,1).conj().T @ constants.B @ delta_k.reshape(-1,1)).real.item() - 1
-
-        # g1_k += lamb[k] * delta_penalty
-
-        # total_g1 += g1_k
         total_g1 = 0
         for k in range(K):
             g1_k = compute_g1_k(A, B, constants, k)
@@ -707,73 +806,7 @@ def compute_lagrangian_B(A, B, constants):
     lagrangian = t + alpha * (total_g1 - t) + beta * (Pt - total_power)
 
     return lagrangian
-# def update_lagrangian_variables(A, B, constants, eta_t=0.0005, eta_lambda=0.0005, eta_alpha=0.0005, eta_beta=0.0005):
-#     """
-#     Perform gradient ascent on t, lambda_k, alpha, beta.
-#     """
 
-#     K = constants.K
-#     Pt = constants.PT
-#     sigma2 = constants.SIGMA**2
-
-#     t = B.t
-#     alpha = B.ALPHA
-#     beta = B.BETA
-#     lamb = B.LAMB
-
-#     # === Step 1: compute g1_k for each user
-#     # g1_list = []
-#     total_g1 = 0
-#     for k in range(K):
-#         Nr = constants.NR
-#         Nt = constants.NT
-#         H_hat_k = constants.H_HAT[k]
-#         delta_k = A.delta[k].reshape(Nr, Nt)
-#         H_k = H_hat_k + delta_k
-
-#         v_k = B.V[k]
-#         w_k = B.W[k]
-
-#         for a in range(K):
-#             g1_k = compute_g1_k(A, B, constants, a)
-#             total_g1 += g1_k
-#     #     interference = sigma2 * np.eye(Nr, dtype=complex)
-#     #     for n in range(K):
-#     #         if n != k:
-#     #             H_hat_n = constants.H_HAT[n]
-#     #             delta_n = A.delta[n].reshape(Nr, Nt)
-#     #             H_n = H_hat_n + delta_n
-#     #             v_n = B.V[n]
-#     #             interference += H_n @ (v_n @ v_n.conj().T) @ H_n.conj().T
-
-#     #     SINR_k = np.real(w_k.conj().T @ H_k @ v_k + v_k.conj().T @ H_k.conj().T @ w_k \
-#     #             - w_k.conj().T @ interference @ w_k).item()
-
-#     #     g1_k = np.log(1 + SINR_k)
-
-#     #     delta_penalty = (delta_k.reshape(-1,1).conj().T @ constants.B @ delta_k.reshape(-1,1)).real.item() - 1
-#     #     g1_k += lamb[k] * delta_penalty
-
-#     #     g1_list.append(g1_k)
-
-#     # total_g1 = sum(g1_list)
-
-#     # === Step 2: update t
-#     B.t = B.t + eta_t * (1 - alpha)
-
-#     # === Step 3: update each lambda_k
-#     for k in range(K):
-#         delta_penalty = (A.delta[k].reshape(-1,1).conj().T @ constants.B @ A.delta[k].reshape(-1,1)).real.item() - 1
-#         B.LAMB[k] = max(0, B.LAMB[k] + eta_lambda * alpha * delta_penalty)
-
-#     # === Step 4: update alpha
-#     B.ALPHA = max(0, B.ALPHA + eta_alpha * (total_g1 - B.t))
-
-#     # === Step 5: update beta
-#     total_power = sum(np.linalg.norm(B.V[k])**2 for k in range(K))
-#     B.BETA = max(0, B.BETA - eta_beta * (Pt - total_power))
-
-#     return B
 def assert_finite(x, label="variable"):
     if not np.all(np.isfinite(x)):
         print(f"❌ {label} is not finite!")
@@ -841,7 +874,6 @@ def inner_update_w_v(A, B, constants, max_iter=1000000, tol=1e-5):
             break
         prev_gamma = current_gamma
     
-    # check if all gamma_k are positive
     for k in range(K):
         if current_gamma[k] < 0:
             print(f"⚠️ gamma_k[{k}] became negative: {current_gamma[k]:.4e}")
