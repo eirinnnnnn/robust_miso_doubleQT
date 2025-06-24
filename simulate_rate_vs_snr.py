@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from variables import GlobalConstants, VariablesA, VariablesB, initialize_t
-from functions import update_B_loop_robust, compute_rate_k, compute_rate_test
+from functions import update_B_loop_robust, compute_outage_rate, compute_rate_test
 
 def run_simulation(snr_db_range, n_realizations=5):
     robust_rates = []
@@ -17,25 +17,32 @@ def run_simulation(snr_db_range, n_realizations=5):
 
             # constants = GlobalConstants(snr_db=snr_db, snrest_db=11, Nt=16, Nr=8, K=8, Pt=100)
             # constants = GlobalConstants(snr_db=snr_db, snrest_db=0, Nt=16, Nr=2, K=2, Pt=16*2*2)
-            constants = GlobalConstants(snr_db=-10, snrest_db=snr_db, Nt=16, Nr=2, K=2, Pt=100)
+            constants = GlobalConstants(snr_db=snr_db, snrest_db=0, Nt=32, Nr=1, K=1, Pt=100)
             # constants = GlobalConstants(snr_db=snr_db, snrest_db=snr_db, Nt=16, Nr=2, K=2, Pt=100)
             
             # Robust setup
             A_robust = VariablesA(constants)
             B_robust = VariablesB(constants)
             B_robust = initialize_t(A_robust, B_robust, constants)
-            B_robust, _ = update_B_loop_robust(A_robust, B_robust, constants, max_outer_iter=100, outer_tol=5e-3, inner_tol=1e-3, robust=True)
+            B_robust, _ = update_B_loop_robust(A_robust, B_robust, constants, 
+                                               max_outer_iter=500, outer_tol=1e-2, 
+                                               max_inner_iter=1000, inner_tol=1e-3, 
+                                               robust=True)
 
             # Non-robust setup
             A_nonrobust = VariablesA(constants)
             B_nonrobust = VariablesB(constants)
             B_nonrobust = initialize_t(A_nonrobust, B_nonrobust, constants)
-            B_nonrobust, _ = update_B_loop_robust(A_nonrobust, B_nonrobust, constants, max_outer_iter=100, outer_tol=5e-3, robust=False)
+            B_nonrobust, _ = update_B_loop_robust(A_robust, B_robust, constants, 
+                                               max_outer_iter=500, outer_tol=1e-2, 
+                                               max_inner_iter=1000, inner_tol=1e-3, 
+                                               robust=False)
 
             # robust_rate = sum(compute_rate_k(A_robust, B_robust, constants, k) for k in range(constants.K))
             # nonrobust_rate = sum(compute_rate_k(A_nonrobust, B_nonrobust, constants, k) for k in range(constants.K))
 
             avg_robust_rate += compute_rate_test(A_robust, B_robust, constants) 
+            # avg_outage_robust = compute_outage_rate(A_robust, B_robust, constants)
             avg_nonrobust_rate += compute_rate_test(A_nonrobust, B_nonrobust, constants) 
 
         robust_rates.append(avg_robust_rate / n_realizations)
@@ -57,11 +64,11 @@ def plot_rate_vs_snr(snr_db_range, robust_rates, nonrobust_rates):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig('rate_vs_snr_miso_snr0_16_2.png')
+    plt.savefig('converge_tol_test_K1.png')
 
 
 if __name__ == "__main__":
-    snr_db_range = np.arange(-20, 1, 5)
-    # snrest_db_range = np.arange(-10, 6, 5)
-    robust_rates, nonrobust_rates = run_simulation(snr_db_range, n_realizations=5)
+    snr_db_range = np.arange(-10, 10, 5)
+    # snrest_db_range = np.arange(5, 11, 2)
+    robust_rates, nonrobust_rates = run_simulation(snr_db_range, n_realizations=30)
     plot_rate_vs_snr(snr_db_range, robust_rates, nonrobust_rates)
