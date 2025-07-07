@@ -73,8 +73,8 @@ class VariablesA:
 class VariablesB:
     def __init__(self, constants: GlobalConstants):
         self.LAMB = np.ones(constants.K)
-        self.ALPHA = 1
-        self.BETA = 1
+        self.ALPHA = 0.1 
+        self.BETA = 1 
         self.t = 0
 
         self.W = [np.random.randn(constants.NR, 1) + 1j*np.random.randn(constants.NR, 1) for _ in range(constants.K)]

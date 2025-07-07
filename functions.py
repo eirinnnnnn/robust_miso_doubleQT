@@ -52,13 +52,13 @@ def update_A_loop(A, B, constants, inner_tol=1e-3, max_inner_iter=100, plot_lagr
             delta_lagrangian = abs(current_lagrangian - prev_lagrangian)
             # print(f"inner Lagrangian change = {delta_lagrangian:.6e}")
             if delta_lagrangian < inner_tol:
-                print(f"Inner loop converged at iteration {inner_iter+1}.")
+                print(f"    ⤷ Inner A loop converged at iteration {inner_iter+1}.")
                 flag = True
                 break
 
         prev_lagrangian = current_lagrangian
     else:
-        print(f"⚠️ Inner loop reached max iterations without full convergence.")
+        print(f"⚠️ Inner A loop reached max iterations without full convergence.")
         flag = False
 
     if plot_lagrangian:
@@ -280,7 +280,7 @@ def compute_rate_over(A, B, constants):
 
             rate += np.log2(1 + SINR_numerator)
     return rate/samp
-def compute_rate_test(A, B, constants):
+def compute_rate_test(A, B, constants, samp=1000):
     """
     Compute the rate R_k for user k given current A (delta) and B (precoders).
     """
@@ -288,8 +288,8 @@ def compute_rate_test(A, B, constants):
     Nr = constants.NR
     Nt = constants.NT
     sigma2 = constants.SIGMA**2
-    rate = 0
-    samp = 1000
+    rate =[] 
+    # samp = 1000
     for _ in range(samp):
         for k in range(constants.K):
             H_hat_k = constants.H_HAT[k]
@@ -308,8 +308,8 @@ def compute_rate_test(A, B, constants):
             SINR_numerator = v_k.conj().T @ H_k.conj().T @ np.linalg.pinv(interference) @ H_k @ v_k
             SINR_numerator = np.real(SINR_numerator.item())  
 
-            rate += np.log2(1 + SINR_numerator)
-    return rate/samp
+            rate.append(np.log2(1 + SINR_numerator))
+    return np.mean(rate), np.var(rate)
 
 def compute_rate_k(A, B, constants, k):
     """
@@ -426,9 +426,24 @@ def update_v(A, B, constants, n):
 
     v_n = (alpha / gamma_n) * np.linalg.pinv(interference) @ right_hand_side
 
-    if (np.linalg.norm(v_n) ==0 ):
-        print(f"⚠️ v_n[{n}] vanished: {np.linalg.norm(v_n):.4e}")
-        sys.exit(1)
+    # if (np.linalg.norm(v_n) ==0 ):
+    #     print(f"⚠️ v_n[{n}] vanished: {np.linalg.norm(v_n):.4e}")
+    #     # sys.exit(1)
+    #     B.V = []
+
+    #     total_power = 0
+
+    #     for _ in range(constants.K):
+    #         V_k = np.random.normal(0, 1/np.sqrt(2), (constants.NT, 1)) \
+    #               + 1j * np.random.normal(0, 1/np.sqrt(2), (constants.NT, 1))
+    #         B.V.append(V_k)
+    #         total_power += np.linalg.norm(V_k**2) 
+    #         # print(V_k, total_power)
+
+    #     scaling_factor = np.sqrt(constants.PT / total_power)
+    #     B.V = [scaling_factor * V_k for V_k in B.V]
+    if np.linalg.norm(v_n) < 1e-8 or not np.all(np.isfinite(v_n)):
+        raise ValueError(f"v_n[{n}] vanished or became invalid.")
     return v_n
 
 def compute_gamma_k_QT(A, B, constants, k):
@@ -545,7 +560,13 @@ def backtracking_line_search_max(obj_fn, grad_fn, x, d, initial_eta=1.0, alpha=1
     return eta
 
 
-def update_lagrangian_variables(A, B, constants):
+def update_lagrangian_variables(A, B, constants, ite):
+    eta_0 = 5e-2
+    exp_para=1e-2
+
+    # eta = max(eta_0 * 2**(-exp_para*ite), 1e-7)
+    # eta = eta_0/np.sqrt(1+ite) 
+    # eta = eta_0
     """
     Perform gradient ascent on t, lambda_k, alpha, beta using backtracking line search.
     """
@@ -570,7 +591,13 @@ def update_lagrangian_variables(A, B, constants):
         return np.array([1 - alpha])
 
     d_t = grad_t(t)
-    eta_t = backtracking_line_search_max(obj_t, grad_t, t, d_t)
+    # eta_t = backtracking_line_search_max(obj_t, grad_t, t, d_t)
+    # eta_t = 1e-3 
+    # eta_t = eta 
+    res_t = 1 - alpha
+    eta_t = eta_0 * abs(res_t) + 1e-8
+    # eta_t = eta_0 + 1e-8
+
     B.t += eta_t * d_t[0]
 
     # === Step 2: update each lambda_k ===
@@ -587,11 +614,18 @@ def update_lagrangian_variables(A, B, constants):
         return lagrangian(B_tmp)
 
     def grad_alpha(alpha_val):
-        return np.array([-(total_g1 - B.t)])
+        return np.array([(total_g1 - B.t)])
 
     d_alpha = grad_alpha(alpha)
-    eta_alpha = backtracking_line_search_max(obj_alpha, grad_alpha, alpha, d_alpha)
-    B.ALPHA = max(0, alpha + eta_alpha * d_alpha[0])
+    # eta_alpha = backtracking_line_search_max(obj_alpha, grad_alpha, alpha, d_alpha)
+    # eta_alpha = eta
+    res_alpha = total_g1 - B.t
+    eta_alpha = eta_0 * abs(res_alpha) + 1e-8
+    # eta_alpha = eta_0 + 1e-8
+
+
+    B.ALPHA = max(0, alpha - eta_alpha * d_alpha[0])
+    # B.ALPHA = max(1e-3, min(10, B.ALPHA - eta_alpha * d_alpha[0]))
 
     # === Step 4: update beta ===
     total_power = sum(np.linalg.norm(B.V[k])**2 for k in range(K))
@@ -602,72 +636,128 @@ def update_lagrangian_variables(A, B, constants):
         return lagrangian(B_tmp)
 
     def grad_beta(beta_val):
-        return np.array([-(Pt - total_power)])
+        return np.array([(Pt - total_power)])
 
     d_beta = grad_beta(beta)
-    eta_beta = backtracking_line_search_max(obj_beta, grad_beta, beta, d_beta)
+    # eta_beta = backtracking_line_search_max(obj_beta, grad_beta, beta, d_beta)
+    # eta_beta = eta
+    res_beta = Pt - total_power
+    eta_beta = 5e-5 * abs(res_beta) + 1e-8
+    # eta_beta = 5e-6 + 1e-8
+    # eta_beta = eta_0 * abs(res_beta) + 1e-8
+
     # print(f"grad_beta = {d_beta}, eta_beta = {eta_beta}, beta = {beta}")
-    print(f"[Dual Update] α = {alpha:.4e}, slack = {total_g1 - B.t:.4e}, η = {eta_alpha:.2e}")
-    print(f"[Dual Update] α = {beta:.4e}, slack = {Pt-total_power:.4e}, η = {eta_beta:.2e}")
-    B.BETA = max(0, beta + eta_beta * d_beta[0])
+    # B.BETA = max(1e-3, min(10, B.BETA - eta_beta * d_beta[0]))
+    B.BETA = max(0, beta - eta_beta * d_beta[0])
+    # print(f"[Dual Update] alpha = {alpha:.4e}, slack = {total_g1 - B.t:.4e}, η = {eta_alpha:.2e}")
+    # print(f"[Dual Update] beta = {beta:.4e}, slack = {Pt-total_power:.4e}, η = {eta_beta:.2e}")
+    # print(f"[Prim Update] t = {t:.4e}, η = {eta_t:.2e}")
 
     return B
 
 
-# def update_B_loop_robust__(A, B, constants, 
-#                          outer_tol=1e-6, max_outer_iter=100, 
-#                          inner_tol=1e-4, max_inner_iter=500,
-#                          robust = True):
-#     """
-#     Outer loop for updating B (V, Lambda, t, alpha, beta).
-#     Inside each outer iteration, run a micro-inner loop on (w, v) until micro-lagrangian converges.
-#     """
+def update_B_loop_robust_stableB(A, B, constants, 
+                         outer_tol=1e-6, max_outer_iter=100, 
+                         inner_tol=1e-4, max_inner_iter=500,
+                         robust = True):
+    """
+    Outer loop for updating B (V, Lambda, t, alpha, beta).
+    Logs alpha and beta values to inspect KKT conditions.
+    """
 
-#     K = constants.K
-#     Nr = constants.NR
-#     Pt = constants.PT
+    K = constants.K
+    Nr = constants.NR
+    Pt = constants.PT
 
-#     prev_outer_lagrangian = None
-#     lagrangian_trajectory = []
-#     converged = False
+    prev_outer_lagrangian = None
+    lagrangian_trajectory = []
+    alpha_trajectory = []  
+    beta_trajectory = []   
+    t_trajectory = []   
+    res1 = []
+    res2 = []
+    converged = False
+    if robust==False:
+        A.Delta = []
+        A.delta = []
+        for _ in range(constants.K):
+            Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
+            A.Delta.append(Delta_k)
+            A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
 
-#     # A, converged_A= update_A_loop(A, B, constants)
-#     for outer_iter in range(max_outer_iter):
-#         # update algorithm 1 (A update)
+    for outer_iter in range(max_outer_iter):
 
-#         # algorithm 3 (B update)
-#         B, gamma_history, _ , sinr_history= inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
-#         gamma_history = np.array(gamma_history)  # shape: (iterations, K)
-#         sinr_history= np.array(sinr_history)  # shape: (iterations, K)
-#         # for k in range(constants.K):
-#             # print(f"[B inner Final] γ_k_QT[{k}] = {gamma_history[-1, k]:.4e}, {sinr_history[-1, k]:.4e}, w_k norm = {np.linalg.norm(B.W[k]):.4e}, v_k norm = {np.linalg.norm(B.V[k]):.4e}")
+        if robust:
+            A, converged_A = update_A_loop(A, B, constants, inner_tol=inner_tol, max_inner_iter=max_inner_iter)
 
-#         if(robust): A, converged_A= update_A_loop(A, B, constants, inner_tol=inner_tol, max_inner_iter=max_inner_iter)
-        
-#         # === Step 2: Update lagrangian multipliers ===
-#         B = update_lagrangian_variables(A, B, constants)
+        # prev_B_lag = None 
+        # for inner_B_iter in range(100):
+        #     # === Step 1: inner w,v update ===
+        #     B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
+        #     # === Step 2: Lagrangian dual variable update ===
+        #     B = update_lagrangian_variables(A, B, constants, outer_iter)
+        #     lag = compute_lagrangian_B(A, B, constants)
+        #     if prev_B_lag is not None:
+        #         delta_outer = abs(lag - prev_B_lag)
+        #         print(f"[{inner_B_iter}]Loop B Lagrangian change = {delta_outer:.6e}")
+        #     prev_B_lag = lag
+        prev_B_lag = None 
+        for inner_B_iter in range(1000):
+            B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
+            B = update_lagrangian_variables(A, B, constants, outer_iter)
+            lag = compute_lagrangian_B(A, B, constants)
+            # lagrangian_trajectory.append(lag)
 
-#         # === Step 3: Compute outer lagrangian ===
-#         current_outer_lagrangian = compute_lagrangian_B(A, B, constants)
-#         lagrangian_trajectory.append(current_outer_lagrangian)
-
-#         # print(f"[B Outer iter {outer_iter+1}] Outer Lagrangian = {current_outer_lagrangian:.6e}")
-
-#         if prev_outer_lagrangian is not None:
-#             delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
-#             print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
-#             if delta_outer < outer_tol:
-#                 print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
-#                 converged = True
-#                 break
-
-#         prev_outer_lagrangian = current_outer_lagrangian
+            if prev_B_lag is not None:
+                delta_B = abs(lag - prev_B_lag)
+                # print(f"[{outer_iter}.{inner_B_iter}] ⤷ B Lagrangian change = {delta_B:.6e}")
+                if delta_B < 5e-3:
+                    print(f"    ⤷ Inner B loop converged at {inner_B_iter+1}")
+                    break
+            prev_B_lag = lag
+        else:
+            print(f"⚠️ Inner B loop reached max_inner_iter = {max_inner_iter}")
 
 
-#     if not converged:
-#         print(f"⚠️ Outer loop reached max iterations without full convergence.")
 
-#     return B, lagrangian_trajectory
+        alpha_trajectory.append(B.ALPHA)  
+        beta_trajectory.append(B.BETA)    
+        t_trajectory.append(B.t)
+
+
+        g_sum = 0
+        for k in range(constants.K):
+            g_k = compute_g1_k_QT(A, B, constants, k)
+            g_sum += g_k
+
+        slack_g = g_sum - B.t
+        slack_pwr =  constants.PT - sum(np.linalg.norm(B.V[k]) ** 2 for k in range(constants.K)) 
+
+        res1.append(slack_g)
+        res2.append(slack_pwr)
+
+        # === Step 3: Compute outer Lagrangian ===
+        current_outer_lagrangian = compute_lagrangian_B(A, B, constants)
+        # current_outer_lagrangian = compute_rate_test(A, B, constants, samp=1000)[0]
+        lagrangian_trajectory.append(current_outer_lagrangian)
+
+        # === Check convergence ===
+        if prev_outer_lagrangian is not None:
+            delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
+            print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
+
+            # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}, alpha = {B.ALPHA}, beta = {B.BETA}")
+            if delta_outer < outer_tol:
+                print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
+                converged = True
+                break
+
+        prev_outer_lagrangian = current_outer_lagrangian
+
+    if not converged:
+        print(f"⚠️ Outer loop reached max iterations without full convergence.")
+
+    return B, lagrangian_trajectory, alpha_trajectory, beta_trajectory, t_trajectory, res1, res2
 
 def update_B_loop_robust(A, B, constants, 
                          outer_tol=1e-6, max_outer_iter=100, 
@@ -686,21 +776,44 @@ def update_B_loop_robust(A, B, constants,
     lagrangian_trajectory = []
     alpha_trajectory = []  
     beta_trajectory = []   
+    t_trajectory = []   
+    res1 = []
+    res2 = []
     converged = False
-
+    if robust==False:
+        A.Delta = []
+        A.delta = []
+        for _ in range(constants.K):
+            Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
+            A.Delta.append(Delta_k)
+            A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
     for outer_iter in range(max_outer_iter):
         # === Step 1: inner w,v update ===
         B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
 
-        if robust:
-            A, converged_A = update_A_loop(A, B, constants, inner_tol=inner_tol, max_inner_iter=max_inner_iter)
-
         # === Step 2: Lagrangian dual variable update ===
-        B = update_lagrangian_variables(A, B, constants)
+        B = update_lagrangian_variables(A, B, constants, outer_iter)
+
+        if robust:
+            A, _= update_A_loop(A, B, constants, inner_tol=inner_tol, max_inner_iter=max_inner_iter)
 
         # === NEW: Log alpha and beta ===
         alpha_trajectory.append(B.ALPHA)  
         beta_trajectory.append(B.BETA)    
+        t_trajectory.append(B.t)
+
+
+        # Compute g_sum = sum_k g_{1,k}(V)
+        g_sum = 0
+        for k in range(constants.K):
+            g_k = compute_g1_k_QT(A, B, constants, k)
+            g_sum += g_k
+
+        slack_g = g_sum - B.t
+        slack_pwr =  constants.PT - sum(np.linalg.norm(B.V[k]) ** 2 for k in range(constants.K)) 
+
+        res1.append(slack_g)
+        res2.append(slack_pwr)
 
         # === Step 3: Compute outer Lagrangian ===
         current_outer_lagrangian = compute_lagrangian_B(A, B, constants)
@@ -722,7 +835,97 @@ def update_B_loop_robust(A, B, constants,
     if not converged:
         print(f"⚠️ Outer loop reached max iterations without full convergence.")
 
-    return B, lagrangian_trajectory, alpha_trajectory, beta_trajectory
+
+    return B, lagrangian_trajectory, alpha_trajectory, beta_trajectory, t_trajectory, res1, res2
+import copy
+
+def modified_update_B_loop_robust(A, B, constants, 
+                         outer_tol=1e-6, max_outer_iter=100, 
+                         inner_tol=1e-4, max_inner_iter=500,
+                         robust=True):
+    """
+    Modified outer loop for updating B with convergence monitoring based on:
+    - Outer Lagrangian change
+    - Norm change in v_k (Δv)
+    - Norm change in delta_k (Δδ)
+    Also logs trajectories of alpha, beta, t, Δv, Δδ, and v_k itself.
+    """
+
+    K = constants.K
+    Nr = constants.NR
+    Pt = constants.PT
+
+    prev_outer_lagrangian = None
+    lagrangian_trajectory = []
+    alpha_trajectory = []  
+    beta_trajectory = []   
+    t_trajectory = []   
+    res1 = []
+    res2 = []
+    delta_v_trajectory = []
+    delta_delta_trajectory = []
+    v_trajectory = []
+
+    converged = False
+
+    if not robust:
+        A.Delta = []
+        A.delta = []
+        for _ in range(constants.K):
+            Delta_k = generate_delta_within_ellipsoid(Nr, constants.NT, constants.B) 
+            A.Delta.append(Delta_k)
+            A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
+
+    for outer_iter in range(max_outer_iter):
+        # === Step 1: inner w,v update ===
+        prev_V = [v.copy() for v in B.V]
+        B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
+        delta_v = sum(np.linalg.norm(B.V[k] - prev_V[k]) for k in range(K))
+        delta_v_trajectory.append(delta_v)
+        v_trajectory.append(sum(np.linalg.norm(B.V[k]) for k in range(K)))
+
+        # === Step 2: Lagrangian dual variable update ===
+        B = update_lagrangian_variables(A, B, constants, outer_iter)
+
+        # === Step 3: A-step ===
+        if robust:
+            prev_delta = [d.copy() for d in A.delta]
+            A, _ = update_A_loop(A, B, constants, inner_tol=inner_tol, max_inner_iter=max_inner_iter)
+            delta_delta = sum(np.linalg.norm(A.delta[k] - prev_delta[k]) for k in range(K))
+        else:
+            delta_delta = 0.0
+        delta_delta_trajectory.append(delta_delta)
+
+        # === Log alpha, beta, t ===
+        alpha_trajectory.append(B.ALPHA)  
+        beta_trajectory.append(B.BETA)    
+        t_trajectory.append(B.t)
+
+        # === Constraint slacks ===
+        g_sum = sum(compute_g1_k_QT(A, B, constants, k) for k in range(K))
+        slack_g = g_sum - B.t
+        slack_pwr = Pt - sum(np.linalg.norm(B.V[k]) ** 2 for k in range(K))
+        res1.append(slack_g)
+        res2.append(slack_pwr)
+
+        # === Compute outer Lagrangian ===
+        current_outer_lagrangian = compute_lagrangian_B(A, B, constants)
+        lagrangian_trajectory.append(current_outer_lagrangian)
+
+        if prev_outer_lagrangian is not None:
+            delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
+            print(f"[{outer_iter}] ΔL = {delta_outer:.2e}, Δv = {delta_v:.2e}, Δδ = {delta_delta:.2e}")
+            if delta_outer < outer_tol:
+                print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
+                converged = True
+                break
+
+        prev_outer_lagrangian = current_outer_lagrangian
+
+    if not converged:
+        print(f"⚠️ Outer loop reached max iterations without full convergence.")
+
+    return B, lagrangian_trajectory, alpha_trajectory, beta_trajectory, t_trajectory, res1, res2, delta_v_trajectory, delta_delta_trajectory, v_trajectory
 
 ########################
 

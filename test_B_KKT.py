@@ -1,9 +1,9 @@
 from variables import GlobalConstants, VariablesA, VariablesB, initialize_t
-from functions import update_B_loop_robust, compute_rate_test, compute_rate_over, compute_g1_k_QT
+from functions import modified_update_B_loop_robust, update_B_loop_robust_stableB,update_B_loop_robust, compute_rate_test, compute_rate_over, compute_g1_k_QT
 import numpy as np
 def test_update_B_loop():
     # === Setup constants and variables
-    constants = GlobalConstants(snr_db=5, snrest_db=10, Nt=8, Nr=2, K=2, Pt=100)
+    constants = GlobalConstants(snr_db=0, snrest_db=5, Nt=32, Nr=2, K=2, Pt=4)
     A_robust = VariablesA(constants)
     B_robust = VariablesB(constants)
 
@@ -11,18 +11,29 @@ def test_update_B_loop():
     B_robust = initialize_t(A_robust, B_robust, constants)
 
     # === Run Algorithm 2 (B update)
-    print("=== Starting Algorithm 2 (B update) ===")
-    B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory = update_B_loop_robust(
-        A_robust, B_robust, constants, max_outer_iter=5000, outer_tol=1e-4, inner_tol=1e-3, robust=True
+    print("=== ROBUST ===")
+    B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2, _,_, v_traj= modified_update_B_loop_robust(
+        A_robust, B_robust, constants, max_outer_iter=1000, outer_tol=1e-4, inner_tol=1e-3, robust=True
     )
-    print("=== Finished Algorithm 2 ===")
 
     # === Evaluate final rate
-    robust_rate = compute_rate_test(A_robust, B_robust, constants)
-    print(f"final robust rate: {robust_rate:.6e}")
-    robust_rate = compute_rate_over(A_robust, B_robust, constants)
-    print(f"final robust over region rate: {robust_rate:.6e}")
+    robust_rate_in, rob_var = compute_rate_test(A_robust, B_robust, constants, samp=10000)
+    robust_rate_over = compute_rate_over(A_robust, B_robust, constants)
 
+    print("=== NONROBUST ===")
+    A_nonrobust = VariablesA(constants)
+    B_nonrobust = VariablesB(constants)
+    B_nonrobust = initialize_t(A_nonrobust, B_nonrobust, constants)
+    B_nonrobust, _,_,_,_,_,_ = update_B_loop_robust(A_robust, B_robust, constants, 
+                                        max_outer_iter=500, outer_tol=5e-3, 
+                                        max_inner_iter=1000, inner_tol=1e-3, 
+                                        robust=False)
+    nonrobust_rate_in, non_var = compute_rate_test(A_nonrobust, B_nonrobust, constants, samp=10000)
+    nonrobust_rate_over = compute_rate_over(A_nonrobust, B_nonrobust, constants)
+    print(f"final robust rate: mean={robust_rate_in:.6e}, var={rob_var:.6e}")
+    print(f"final robust over region rate: {robust_rate_over:.6e}")
+    print(f"final nonrobust rate: mean={nonrobust_rate_in:.6e}, var={non_var:.6e}")
+    print(f"final nonrobust over region rate: {nonrobust_rate_over:.6e}")
     # === KKT Condition Check ===
     alpha_final = alpha_trajectory[-1]
     beta_final = beta_trajectory[-1]
@@ -74,6 +85,49 @@ def test_update_B_loop():
     # ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
     # ax.ticklabel_format(style='plain', axis='y')
     plt.savefig("algo2_beta.png")
+
+    plt.figure() 
+    plt.plot(range(1, len(t_trajectory)+1), t_trajectory)
+    plt.xlabel('Outer iteration')
+    plt.ylabel('t')
+    plt.title('Algorithm 2 (B Update) t trajectory')
+    plt.grid(True)
+    ax = plt.gca()  # get current axis
+    # ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
+    # ax.ticklabel_format(style='plain', axis='y')
+    plt.savefig("algo2_t.png")
+    
+    plt.figure() 
+    plt.plot(range(1, len(res1)+1), res1)
+    plt.xlabel('Outer iteration')
+    plt.ylabel('res')
+    plt.title('Algorithm 2 (B Update) residual 1 trajectory')
+    plt.grid(True)
+    ax = plt.gca()  # get current axis
+    # ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
+    # ax.ticklabel_format(style='plain', axis='y')
+    plt.savefig("algo2_res1.png")
+    plt.figure() 
+    plt.plot(range(1, len(res2)+1), res2)
+    plt.xlabel('Outer iteration')
+    plt.ylabel('res')
+    plt.title('Algorithm 2 (B Update) residual 2 trajectory')
+    plt.grid(True)
+    ax = plt.gca()  # get current axis
+    # ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
+    # ax.ticklabel_format(style='plain', axis='y')
+    plt.savefig("algo2_res2.png")
+
+    plt.figure() 
+    plt.plot(range(1, len(v_traj)+1), v_traj)
+    plt.xlabel('Outer iteration')
+    plt.ylabel('res')
+    plt.title('Algorithm 2 (B Update) v_norm trajectory')
+    plt.grid(True)
+    ax = plt.gca()  # get current axis
+    # ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
+    # ax.ticklabel_format(style='plain', axis='y')
+    plt.savefig("algo2_v_norm.png")
 
 if __name__ == "__main__":
     test_update_B_loop()
