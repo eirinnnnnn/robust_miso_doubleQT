@@ -280,6 +280,111 @@ def compute_rate_over(A, B, constants):
 
             rate += np.log2(1 + SINR_numerator)
     return rate/samp
+
+def compute_rate_random(A, B, constants, samp=1000):
+    """
+    Compute the rate R_k for user k given current A (delta) and B (precoders).
+    """
+
+    Nr = constants.NR
+    Nt = constants.NT
+    sigma2 = constants.SIGMA**2
+    rate = 0
+    # samp = 1000
+    for _ in range(1):
+        for k in range(constants.K):
+            H_hat_k = constants.H_HAT[k]
+            # delta_k = generate_delta_within_ellipsoid(Nr, Nt, constants.B) 
+            delta_k = A.Delta[k]
+            H_k = H_hat_k 
+
+            # V = B.V  # list of v_n
+            V = []
+            tot_pw = 0
+            for _ in range(constants.K):
+                V_k = np.random.normal(0, 1 / np.sqrt(2), (constants.NT, 1)) + \
+                    1j * np.random.normal(0, 1 / np.sqrt(2), (constants.NT, 1))
+                V.append(V_k)
+                tot_pw += np.linalg.norm(V_k) ** 2
+
+            scaling_factor = np.sqrt(constants.PT / tot_pw)
+            V = [scaling_factor * V_k for V_k in V]
+
+            interference = sigma2 * np.eye(Nr, dtype=complex)
+            for n in range(constants.K):
+                if n != k:
+                    v_n = V[n]  # (Nr x 1)
+                    interference += H_k @ (v_n @ v_n.conj().T) @ H_k.conj().T
+
+            v_k = V[k]  # (Nr x 1)
+            SINR_numerator = v_k.conj().T @ H_k.conj().T @ np.linalg.pinv(interference) @ H_k @ v_k
+            SINR_numerator = np.real(SINR_numerator.item())  
+
+            rate = np.log2(1 + SINR_numerator)
+    return rate
+def compute_rate_perfect(A, B, constants, samp=1000):
+    """
+    Compute the rate R_k for user k given current A (delta) and B (precoders).
+    """
+
+    Nr = constants.NR
+    Nt = constants.NT
+    sigma2 = constants.SIGMA**2
+    rate = 0
+    # samp = 1000
+    for _ in range(1):
+        for k in range(constants.K):
+            H_hat_k = constants.H_HAT[k]
+            # delta_k = generate_delta_within_ellipsoid(Nr, Nt, constants.B) 
+            delta_k = A.Delta[k]
+            H_k = H_hat_k 
+
+            V = B.V  # list of v_n
+
+            interference = sigma2 * np.eye(Nr, dtype=complex)
+            for n in range(constants.K):
+                if n != k:
+                    v_n = V[n]  # (Nr x 1)
+                    interference += H_k @ (v_n @ v_n.conj().T) @ H_k.conj().T
+
+            v_k = V[k]  # (Nr x 1)
+            SINR_numerator = v_k.conj().T @ H_k.conj().T @ np.linalg.pinv(interference) @ H_k @ v_k
+            SINR_numerator = np.real(SINR_numerator.item())  
+
+            rate = np.log2(1 + SINR_numerator)
+    return rate
+def compute_rate_worst(A, B, constants, samp=1000):
+    """
+    Compute the rate R_k for user k given current A (delta) and B (precoders).
+    """
+
+    Nr = constants.NR
+    Nt = constants.NT
+    sigma2 = constants.SIGMA**2
+    rate = 0
+    # samp = 1000
+    for _ in range(1):
+        for k in range(constants.K):
+            H_hat_k = constants.H_HAT[k]
+            # delta_k = generate_delta_within_ellipsoid(Nr, Nt, constants.B) 
+            delta_k = A.Delta[k]
+            H_k = H_hat_k + delta_k  # effective channel
+
+            V = B.V  # list of v_n
+
+            interference = sigma2 * np.eye(Nr, dtype=complex)
+            for n in range(constants.K):
+                if n != k:
+                    v_n = V[n]  # (Nr x 1)
+                    interference += H_k @ (v_n @ v_n.conj().T) @ H_k.conj().T
+
+            v_k = V[k]  # (Nr x 1)
+            SINR_numerator = v_k.conj().T @ H_k.conj().T @ np.linalg.pinv(interference) @ H_k @ v_k
+            SINR_numerator = np.real(SINR_numerator.item())  
+
+            rate = np.log2(1 + SINR_numerator)
+    return rate
+
 def compute_rate_test(A, B, constants, samp=1000):
     """
     Compute the rate R_k for user k given current A (delta) and B (precoders).
@@ -481,7 +586,6 @@ def compute_gamma_k_QT(A, B, constants, k):
 
     term2 = (w_k.conj().T @ interference @ w_k).item()  # scalar
 
-    # Step 3: Combine
     gamma_k = 1 + term1.real - term2.real
 
     return gamma_k
@@ -560,9 +664,13 @@ def backtracking_line_search_max(obj_fn, grad_fn, x, d, initial_eta=1.0, alpha=1
     return eta
 
 
-def update_lagrangian_variables(A, B, constants, ite):
-    eta_0 = 5e-2
+def update_lagrangian_variables(A, B, constants, ite, robust=True):
+    eta_0 = 8e-3 #(snr = 0, snrest>5)
+    # eta_0 = 2e-2 #(snr=0, snrest=3)
+    # eta_0 = 1.5e-3 #(snr=0, snrest=0)
     exp_para=1e-2
+    if robust==False:
+        eta_0 = 2e-2
 
     # eta = max(eta_0 * 2**(-exp_para*ite), 1e-7)
     # eta = eta_0/np.sqrt(1+ite) 
@@ -596,6 +704,7 @@ def update_lagrangian_variables(A, B, constants, ite):
     # eta_t = eta 
     res_t = 1 - alpha
     eta_t = eta_0 * abs(res_t) + 1e-8
+    # eta_t = eta_0*2**(-exp_para*ite) + 1e-8
     # eta_t = eta_0 + 1e-8
 
     B.t += eta_t * d_t[0]
@@ -621,7 +730,7 @@ def update_lagrangian_variables(A, B, constants, ite):
     # eta_alpha = eta
     res_alpha = total_g1 - B.t
     eta_alpha = eta_0 * abs(res_alpha) + 1e-8
-    # eta_alpha = eta_0 + 1e-8
+    # eta_alpha = eta_0*2**(-exp_para*ite)+ 1e-8
 
 
     B.ALPHA = max(0, alpha - eta_alpha * d_alpha[0])
@@ -642,9 +751,9 @@ def update_lagrangian_variables(A, B, constants, ite):
     # eta_beta = backtracking_line_search_max(obj_beta, grad_beta, beta, d_beta)
     # eta_beta = eta
     res_beta = Pt - total_power
-    eta_beta = 5e-5 * abs(res_beta) + 1e-8
-    # eta_beta = 5e-6 + 1e-8
-    # eta_beta = eta_0 * abs(res_beta) + 1e-8
+    # eta_beta = 5e-5 * abs(res_beta) + 1e-8
+    # eta_beta = 5e-6*2**(-exp_para*ite)  + 1e-8
+    eta_beta = eta_0*1e-4 * abs(res_beta) + 1e-8
 
     # print(f"grad_beta = {d_beta}, eta_beta = {eta_beta}, beta = {beta}")
     # B.BETA = max(1e-3, min(10, B.BETA - eta_beta * d_beta[0]))
@@ -703,8 +812,19 @@ def update_B_loop_robust_stableB(A, B, constants,
         #     prev_B_lag = lag
         prev_B_lag = None 
         for inner_B_iter in range(1000):
-            B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
-            B = update_lagrangian_variables(A, B, constants, outer_iter)
+            # B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
+            w_k_arr = []
+            v_k_arr = []
+            for k in range(K):
+                w_k = update_w(A, B, constants, k)
+                w_k_arr.append(w_k)
+            B.W = w_k_arr
+            for k in range(K):
+                v_k = update_v(A, B, constants, k)
+                v_k_arr.append(v_k)
+            B.V = v_k_arr
+
+            B = update_lagrangian_variables(A, B, constants, outer_iter, robust)
             lag = compute_lagrangian_B(A, B, constants)
             # lagrangian_trajectory.append(lag)
 
@@ -784,9 +904,10 @@ def update_B_loop_robust(A, B, constants,
         A.Delta = []
         A.delta = []
         for _ in range(constants.K):
-            Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
+            Delta_k = np.zeros((constants.NR, constants.NT)) 
+            # Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
             A.Delta.append(Delta_k)
-            A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
+            A.delta.append(Delta_k.reshape(-1, 1))  
     for outer_iter in range(max_outer_iter):
         # === Step 1: inner w,v update ===
         B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
@@ -1060,6 +1181,9 @@ def inner_update_w_v(A, B, constants, max_iter=1000000, tol=1e-5):
             v_k = update_v(A, B, constants, k)
             v_k_arr.append(v_k)
         B.V = v_k_arr
+
+        ## lagrangian parameters update
+
         ##signal monitor
         for k in range(K):
             H_hat_k = constants.H_HAT[k]

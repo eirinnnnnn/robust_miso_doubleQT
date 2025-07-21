@@ -1,10 +1,9 @@
 from variables import GlobalConstants, VariablesA, VariablesB, initialize_t
 from functions import modified_update_B_loop_robust, update_B_loop_robust_stableB,update_B_loop_robust, compute_rate_test, compute_rate_over, compute_g1_k_QT
-from functions import * 
 import numpy as np
 def test_update_B_loop():
     # === Setup constants and variables
-    constants = GlobalConstants(snr_db=0, snrest_db=-5, Nt=32, Nr=2, K=2, Pt=1)
+    constants = GlobalConstants(snr_db=0, snrest_db=5, Nt=32, Nr=2, K=2, Pt=4)
     A_robust = VariablesA(constants)
     B_robust = VariablesB(constants)
 
@@ -13,10 +12,8 @@ def test_update_B_loop():
 
     # === Run Algorithm 2 (B update)
     print("=== ROBUST ===")
-    # B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2 = update_B_loop_robust(
     B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2, _,_, v_traj= modified_update_B_loop_robust(
-    # B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2= update_B_loop_robust_stableB(
-        A_robust, B_robust, constants, max_outer_iter=2000, outer_tol=1e-4, max_inner_iter=2000,inner_tol=1e-3, robust=True
+        A_robust, B_robust, constants, max_outer_iter=1000, outer_tol=1e-4, inner_tol=1e-3, robust=True
     )
 
     # === Evaluate final rate
@@ -27,24 +24,16 @@ def test_update_B_loop():
     A_nonrobust = VariablesA(constants)
     B_nonrobust = VariablesB(constants)
     B_nonrobust = initialize_t(A_nonrobust, B_nonrobust, constants)
-    B_nonrobust, non_robust_lag,_,_,_,_,_ = update_B_loop_robust(A_nonrobust, B_nonrobust, constants, 
-                                        max_outer_iter=1000, outer_tol=1e-3, 
+    B_nonrobust, _,_,_,_,_,_ = update_B_loop_robust(A_robust, B_robust, constants, 
+                                        max_outer_iter=500, outer_tol=5e-3, 
                                         max_inner_iter=1000, inner_tol=1e-3, 
                                         robust=False)
     nonrobust_rate_in, non_var = compute_rate_test(A_nonrobust, B_nonrobust, constants, samp=10000)
     nonrobust_rate_over = compute_rate_over(A_nonrobust, B_nonrobust, constants)
-
-    worst_robust = compute_rate_worst(A_robust,B_robust,constants)
-    worst_nonrobust = compute_rate_worst(A_robust,B_nonrobust,constants)
-
-    perfect_robust = compute_rate_perfect(A_robust, B_robust, constants)
-    # perfect_random = compute_rate_random(A_robust, B_robust, constants)
-    perfect_nonrobust = compute_rate_perfect(A_nonrobust, B_nonrobust, constants)
-    print(f"final robust rate: mean={robust_rate_in:.6e}, var={rob_var:.6e}, worst={worst_robust:.6e}, perfect={perfect_robust:.6e}")
+    print(f"final robust rate: mean={robust_rate_in:.6e}, var={rob_var:.6e}")
     print(f"final robust over region rate: {robust_rate_over:.6e}")
-    print(f"final nonrobust rate: mean={nonrobust_rate_in:.6e}, var={non_var:.6e}, worst={worst_nonrobust:.6e}, perfect={perfect_nonrobust:.6e}")
+    print(f"final nonrobust rate: mean={nonrobust_rate_in:.6e}, var={non_var:.6e}")
     print(f"final nonrobust over region rate: {nonrobust_rate_over:.6e}")
-    # print(f"random precoder rate: {perfect_random:.6e}")
     # === KKT Condition Check ===
     alpha_final = alpha_trajectory[-1]
     beta_final = beta_trajectory[-1]
@@ -56,13 +45,13 @@ def test_update_B_loop():
         g_sum += g_k
 
     slack_g = g_sum - B_robust.t
-    slack_pwr = constants.PT-sum(np.linalg.norm(B_robust.V[k]) ** 2 for k in range(constants.K))
+    slack_pwr = sum(np.linalg.norm(B_robust.V[k]) ** 2 for k in range(constants.K)) - constants.PT
 
     kkt1 = alpha_final * slack_g
     kkt2 = beta_final * slack_pwr
 
     print(f"[KKT Check] alpha = {alpha_final:.4e}, constr = {slack_g}, alpha ⋅ (∑g_k - t) = {kkt1:.4e}")
-    print(f"[KKT Check] beta = {beta_final:.4e}, constr = {slack_pwr}, β ⋅ (P_T - ∑||v_k||²) = {kkt2:.4e}")
+    print(f"[KKT Check] beta = {beta_final:.4e}, constr = {slack_pwr}, β ⋅ (∑||v_k||² - P_T) = {kkt2:.4e}")
 
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
@@ -73,15 +62,7 @@ def test_update_B_loop():
     plt.ylabel('Lagrangian Value')
     plt.title('Algorithm 2 (B Update) Lagrangian Trajectory')
     plt.grid(True)
-    plt.savefig("algo2_L_robust.png")
-
-    plt.figure() 
-    plt.plot(range(1, len(non_robust_lag)+1), non_robust_lag )
-    plt.xlabel('Outer iteration')
-    plt.ylabel('Lagrangian Value')
-    plt.title('Algorithm 2 Non-robust Design Lagrangian Trajectory')
-    plt.grid(True)
-    plt.savefig("algo2_L_nonrobust.png")
+    plt.savefig("algo2_L.png")
 
     plt.figure() 
     plt.plot(range(1, len(alpha_trajectory)+1), alpha_trajectory)
@@ -137,16 +118,16 @@ def test_update_B_loop():
     # ax.ticklabel_format(style='plain', axis='y')
     plt.savefig("algo2_res2.png")
 
-    # plt.figure() 
-    # plt.plot(range(1, len(v_traj)+1), v_traj)
-    # plt.xlabel('Outer iteration')
-    # plt.ylabel('res')
-    # plt.title('Algorithm 2 (B Update) v_norm trajectory')
-    # plt.grid(True)
-    # ax = plt.gca()  # get current axis
+    plt.figure() 
+    plt.plot(range(1, len(v_traj)+1), v_traj)
+    plt.xlabel('Outer iteration')
+    plt.ylabel('res')
+    plt.title('Algorithm 2 (B Update) v_norm trajectory')
+    plt.grid(True)
+    ax = plt.gca()  # get current axis
     # ax.yaxis.set_major_formatter(mticker.ScalarFormatter(useMathText=True))
     # ax.ticklabel_format(style='plain', axis='y')
-    # plt.savefig("algo2_v_norm.png")
+    plt.savefig("algo2_v_norm.png")
 
 if __name__ == "__main__":
     test_update_B_loop()

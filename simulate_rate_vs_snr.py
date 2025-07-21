@@ -28,10 +28,11 @@ def run_simulation_noabort(snr_db_range, n_realizations=5):
             A_robust = VariablesA(constants)
             B_robust = VariablesB(constants)
             B_robust = initialize_t(A_robust, B_robust, constants)
-            B_robust, _,_,__,_,_,_,_,_,_ = modified_update_B_loop_robust(A_robust, B_robust, constants, 
-                                               max_outer_iter=2000, outer_tol=1e-3, 
-                                               max_inner_iter=1000, inner_tol=1e-3, 
-                                               robust=True)
+            B_robust, _,_,__,_,_,_,_,_,_ = modified_update_B_loop_robust(
+                                            A_robust, B_robust, constants, 
+                                            max_outer_iter=2000, outer_tol=1e-3, 
+                                            max_inner_iter=1000, inner_tol=1e-3, 
+                                            robust=True)
 
             # Non-robust setup
             A_nonrobust = VariablesA(constants)
@@ -76,7 +77,7 @@ def run_simulation(snr_db_range, n_realizations=5):
         for i in range(n_realizations):
             print(f"  [Realization {i+1}/{n_realizations}]")
             try:
-                constants = GlobalConstants(snr_db=0, snrest_db=snr_db, Nt=32, Nr=2, K=2, Pt=4)
+                constants = GlobalConstants(snr_db=0, snrest_db=snr_db, Nt=32, Nr=2, K=2, Pt=1)
 
                 # Robust setup
                 A_robust = VariablesA(constants)
@@ -86,8 +87,8 @@ def run_simulation(snr_db_range, n_realizations=5):
                 #                                          max_outer_iter=2000, outer_tol=1e-3,
                 #                                          max_inner_iter=1000, inner_tol=1e-3,
                 #                                          robust=True)
-                B_robust, _,_,__,_,_,_,_,_,_ = modified_update_B_loop_robust(A_robust, B_robust, constants, 
-                                               max_outer_iter=2000, outer_tol=1e-3, 
+                B_robust, _,_,_,_,_,_,_,_,_ = modified_update_B_loop_robust(A_robust, B_robust, constants, 
+                                               max_outer_iter=2000, outer_tol=5e-4, 
                                                max_inner_iter=1000, inner_tol=1e-3, 
                                                robust=True)
 
@@ -100,8 +101,8 @@ def run_simulation(snr_db_range, n_realizations=5):
                 A_nonrobust = VariablesA(constants)
                 B_nonrobust = VariablesB(constants)
                 B_nonrobust = initialize_t(A_nonrobust, B_nonrobust, constants)
-                B_nonrobust, _, _, _ = update_B_loop_robust(A_robust, B_robust, constants,
-                                                            max_outer_iter=2000, outer_tol=5e-3,
+                B_nonrobust, _, _, _,_,_,_ = update_B_loop_robust(A_nonrobust, B_nonrobust, constants,
+                                                            max_outer_iter=2000, outer_tol=1e-3,
                                                             max_inner_iter=1000, inner_tol=1e-3,
                                                             robust=False)
 
@@ -140,8 +141,8 @@ def run_simulation(snr_db_range, n_realizations=5):
 
 def plot_rate_vs_snr(snr_db_range, robust_rates, nonrobust_rates):
     plt.figure()
-    print("robust: ", robust_rates)
-    print("nonrobust: ", nonrobust_rates)
+    print("robust mean: ", robust_rates)
+    print("nonrobust mean: ", nonrobust_rates)
     plt.plot(snr_db_range, robust_rates, marker='o', label='Robust Design')
     plt.plot(snr_db_range, nonrobust_rates, marker='s', label='Non-Robust Design')
     # plt.xlabel('SNR (dB)')
@@ -156,8 +157,8 @@ def plot_rate_vs_snr(snr_db_range, robust_rates, nonrobust_rates):
 
 def plot_rate_vs_snr_var(snr_db_range, robust_rates, nonrobust_rates):
     plt.figure()
-    print("robust: ", robust_rates)
-    print("nonrobust: ", nonrobust_rates)
+    print("robust var: ", robust_rates)
+    print("nonrobust var: ", nonrobust_rates)
     plt.plot(snr_db_range, robust_rates, marker='o', label='Robust Design')
     plt.plot(snr_db_range, nonrobust_rates, marker='s', label='Non-Robust Design')
     # plt.xlabel('SNR (dB)')
@@ -172,8 +173,8 @@ def plot_rate_vs_snr_var(snr_db_range, robust_rates, nonrobust_rates):
 
 
 if __name__ == "__main__":
-    snr_db_range = np.arange(5, 11, 2)
+    snr_db_range = np.arange(-5, 6, 1)
     # snrest_db_range = np.arange(5, 11, 2)
-    robust_rates, nonrobust_rates, robust_rates_var, nonrobust_rates_var = run_simulation(snr_db_range, n_realizations=10)
+    robust_rates, nonrobust_rates, robust_rates_var, nonrobust_rates_var = run_simulation(snr_db_range, n_realizations=200)
     plot_rate_vs_snr(snr_db_range, robust_rates, nonrobust_rates)
     plot_rate_vs_snr_var(snr_db_range, robust_rates_var, nonrobust_rates_var)
