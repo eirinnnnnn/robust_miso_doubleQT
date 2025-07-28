@@ -52,7 +52,7 @@ def update_A_loop(A, B, constants, inner_tol=1e-3, max_inner_iter=100, plot_lagr
             delta_lagrangian = abs(current_lagrangian - prev_lagrangian)
             # print(f"inner Lagrangian change = {delta_lagrangian:.6e}")
             if delta_lagrangian < inner_tol:
-                print(f"    ⤷ Inner A loop converged at iteration {inner_iter+1}.")
+                # print(f"    ⤷ Inner A loop converged at iteration {inner_iter+1}.")
                 flag = True
                 break
 
@@ -218,6 +218,31 @@ def update_delta_k(y_k, delta_k, B, constants, k):
     return delta_k
 import numpy as np
 
+def generate_mmse_mismatch(Nr, Nt, B):
+    """
+    Generate a complex matrix delta of shape (Nr, Nt) such that
+    vec(delta).H @ B @ vec(delta) <= 1
+    """
+    dim = Nr * Nt
+
+    # Step 1: sample from standard complex normal
+    z_real = np.random.randn(dim)
+    z_imag = np.random.randn(dim)
+    z = z_real + 1j * z_imag
+    z = z / np.linalg.norm(z)  # normalize to unit norm
+
+    # Step 2: sample radius uniformly inside unit ball (w.r.t. B)
+    # Define scaling factor r such that (r*z)^H B (r*z) = r^2 * z^H B z <= 1
+    # Thus: r <= 1 / sqrt(z^H B z)
+    z = z.reshape(-1, 1)
+    quad_norm = np.real(z.conj().T @ B @ z).item()
+    r_max = 1 / np.sqrt(quad_norm + 1e-12)  # +1e-12 for safety
+    r = np.random.rand() ** (1 / dim) * r_max
+
+    delta_vec = r * z  # (Nt*Nr, 1)
+    delta = delta_vec.reshape(Nr, Nt)
+
+    return delta
 def generate_delta_within_ellipsoid(Nr, Nt, B):
     """
     Generate a complex matrix delta of shape (Nr, Nt) such that
@@ -385,7 +410,7 @@ def compute_rate_worst(A, B, constants, samp=1000):
             rate = np.log2(1 + SINR_numerator)
     return rate
 
-def compute_rate_test(A, B, constants, samp=1000):
+def compute_rate_test_random(A, B, constants, samp=1000):
     """
     Compute the rate R_k for user k given current A (delta) and B (precoders).
     """
@@ -399,6 +424,42 @@ def compute_rate_test(A, B, constants, samp=1000):
         for k in range(constants.K):
             H_hat_k = constants.H_HAT[k]
             delta_k = generate_delta_within_ellipsoid(Nr, Nt, constants.B) 
+            H_k = H_hat_k + delta_k  # effective channel
+
+            V = B.V  # list of v_n
+
+            interference = sigma2 * np.eye(Nr, dtype=complex)
+            for n in range(constants.K):
+                if n != k:
+                    v_n = V[n]  # (Nr x 1)
+                    interference += H_k @ (v_n @ v_n.conj().T) @ H_k.conj().T
+
+            v_k = V[k]  # (Nr x 1)
+            SINR_numerator = v_k.conj().T @ H_k.conj().T @ np.linalg.pinv(interference) @ H_k @ v_k
+            SINR_numerator = np.real(SINR_numerator.item())  
+
+            rate.append(np.log2(1 + SINR_numerator))
+    return np.mean(rate), np.var(rate)
+
+from scipy.io import loadmat
+def compute_rate_test(A, B, constants, Delta_k, samp=1000):
+    """
+    Compute the rate R_k for user k given current A (delta) and B (precoders).
+    Load the mismatch from generated samples
+    """
+    scale = np.sqrt(1/ (1 + 10**(constants.SNREST_DB/10)))
+    Nr = constants.NR
+    Nt = constants.NT
+    sigma2 = constants.SIGMA**2
+    rate =[] 
+    # samp = 1000
+    # delta_k_data = loadmat('Delta_k.mat')
+    # Delta = delta_k_data['Delta_k']
+    for samp in range(samp):
+        for k in range(constants.K):
+            H_hat_k = constants.H_HAT[k]
+            # delta_k = generate_delta_within_ellipsoid(Nr, Nt, constants.B) 
+            delta_k = scale*Delta_k[samp][k]
             H_k = H_hat_k + delta_k  # effective channel
 
             V = B.V  # list of v_n
@@ -528,8 +589,8 @@ def update_v(A, B, constants, n):
             # interference -= (alpha / gamma_k) * (W[k].conj().T @ H_k @ H_k.conj().T@ W[k])
     gamma_n = compute_gamma_k_QT(A, B, constants, n)
     right_hand_side = H_n.conj().T @ W[n]  # (Nt x 1)
-
-    v_n = (alpha / gamma_n) * np.linalg.pinv(interference) @ right_hand_side
+    inv_interf = np.linalg.pinv(interference) 
+    v_n = (alpha / gamma_n) * inv_interf @ right_hand_side
 
     # if (np.linalg.norm(v_n) ==0 ):
     #     print(f"⚠️ v_n[{n}] vanished: {np.linalg.norm(v_n):.4e}")
@@ -547,7 +608,9 @@ def update_v(A, B, constants, n):
 
     #     scaling_factor = np.sqrt(constants.PT / total_power)
     #     B.V = [scaling_factor * V_k for V_k in B.V]
-    if np.linalg.norm(v_n) < 1e-8 or not np.all(np.isfinite(v_n)):
+    norm = np.linalg.norm(v_n)
+    if norm < 1e-10 or not np.all(np.isfinite(v_n)):
+        print(f"norm of v_{n}: {norm}, gamma_{n}: {gamma_n:.6e}, H^H_w: {np.linalg.norm(right_hand_side)}, I+N: {np.trace(inv_interf)}")
         raise ValueError(f"v_n[{n}] vanished or became invalid.")
     return v_n
 
@@ -665,12 +728,12 @@ def backtracking_line_search_max(obj_fn, grad_fn, x, d, initial_eta=1.0, alpha=1
 
 
 def update_lagrangian_variables(A, B, constants, ite, robust=True):
-    eta_0 = 8e-3 #(snr = 0, snrest>5)
+    eta_0 = 6e-3 #(snr = 0, snrest>5)
     # eta_0 = 2e-2 #(snr=0, snrest=3)
     # eta_0 = 1.5e-3 #(snr=0, snrest=0)
     exp_para=1e-2
     if robust==False:
-        eta_0 = 2e-2
+        eta_0 = 1e-3
 
     # eta = max(eta_0 * 2**(-exp_para*ite), 1e-7)
     # eta = eta_0/np.sqrt(1+ite) 
@@ -729,7 +792,7 @@ def update_lagrangian_variables(A, B, constants, ite, robust=True):
     # eta_alpha = backtracking_line_search_max(obj_alpha, grad_alpha, alpha, d_alpha)
     # eta_alpha = eta
     res_alpha = total_g1 - B.t
-    eta_alpha = eta_0 * abs(res_alpha) + 1e-8
+    eta_alpha = eta_0*2 * abs(res_alpha) + 1e-8
     # eta_alpha = eta_0*2**(-exp_para*ite)+ 1e-8
 
 
@@ -753,7 +816,7 @@ def update_lagrangian_variables(A, B, constants, ite, robust=True):
     res_beta = Pt - total_power
     # eta_beta = 5e-5 * abs(res_beta) + 1e-8
     # eta_beta = 5e-6*2**(-exp_para*ite)  + 1e-8
-    eta_beta = eta_0*1e-4 * abs(res_beta) + 1e-8
+    eta_beta = eta_0*1e-2 * abs(res_beta) + 1e-8
 
     # print(f"grad_beta = {d_beta}, eta_beta = {eta_beta}, beta = {beta}")
     # B.BETA = max(1e-3, min(10, B.BETA - eta_beta * d_beta[0]))
@@ -830,7 +893,7 @@ def update_B_loop_robust_stableB(A, B, constants,
 
             if prev_B_lag is not None:
                 delta_B = abs(lag - prev_B_lag)
-                # print(f"[{outer_iter}.{inner_B_iter}] ⤷ B Lagrangian change = {delta_B:.6e}")
+                print(f"[{outer_iter}.{inner_B_iter}] ⤷ B Lagrangian change = {delta_B:.6e}")
                 if delta_B < 5e-3:
                     print(f"    ⤷ Inner B loop converged at {inner_B_iter+1}")
                     break
@@ -943,7 +1006,7 @@ def update_B_loop_robust(A, B, constants,
         # === Check convergence ===
         if prev_outer_lagrangian is not None:
             delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
-            print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
+            # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
 
             # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}, alpha = {B.ALPHA}, beta = {B.BETA}")
             if delta_outer < outer_tol:
@@ -1035,7 +1098,7 @@ def modified_update_B_loop_robust(A, B, constants,
 
         if prev_outer_lagrangian is not None:
             delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
-            print(f"[{outer_iter}] ΔL = {delta_outer:.2e}, Δv = {delta_v:.2e}, Δδ = {delta_delta:.2e}")
+            # print(f"[{outer_iter}] ΔL = {delta_outer:.2e}, Δv = {delta_v:.2e}, Δδ = {delta_delta:.2e}")
             if delta_outer < outer_tol:
                 print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
                 converged = True
@@ -1264,3 +1327,98 @@ def compute_outage_rate(A, B, constants, outage_percentile=5):
     # Compute outage percentile
     outage_rate = np.percentile(all_sum_rate, outage_percentile)
     return outage_rate
+
+def wmmse_sum_rate(constants, max_iter=100, tol=1e-4):
+    """
+    Classic WMMSE algorithm for sum-rate maximization with perfect CSI.
+    Args:
+        H_HAT: list or array of shape (K, Nr, Nt), estimated channel for each user
+        Pt: total transmit power
+        sigma2: noise variance
+        max_iter: maximum number of iterations
+        tol: convergence tolerance
+    Returns:
+        V: list of (Nt, 1) precoders for each user
+        sum_rate: achieved sum rate (bps/Hz)
+    """
+    H_HAT=constants.H_HAT
+    Pt = constants.PT
+    sigma2 = constants.SIGMA**2
+    K, Nr, Nt = H_HAT.shape
+    # Initialize V randomly and normalize to meet power constraint
+    V = []
+    total_power = 0
+    for _ in range(K):
+        v_k = np.random.randn(Nt, 1) + 1j * np.random.randn(Nt, 1)
+        V.append(v_k)
+        total_power += np.linalg.norm(v_k)**2
+    scaling = np.sqrt(Pt / total_power)
+    V = [scaling * v_k for v_k in V]
+
+    for it in range(max_iter):
+        # Step 1: Update receive filters W
+        W = []
+        for k in range(K):
+            Hk = H_HAT[k]
+            interf = sigma2 * np.eye(Nr, dtype=complex)
+            for j in range(K):
+                if j != k:
+                    interf += Hk @ V[j] @ V[j].conj().T @ Hk.conj().T
+            v_k = V[k]
+            W_k = np.linalg.inv(interf + Hk @ v_k @ v_k.conj().T @ Hk.conj().T) @ Hk @ v_k
+            W.append(W_k)
+
+        # Step 2: Update MSE weights U
+        U = []
+        for k in range(K):
+            Hk = H_HAT[k]
+            v_k = V[k]
+            W_k = W[k]
+            e_k = 1 - 2 * np.real(W_k.conj().T @ Hk @ v_k) + \
+                  W_k.conj().T @ (sigma2 * np.eye(Nr) + sum(Hk @ V[j] @ V[j].conj().T @ Hk.conj().T for j in range(K))) @ W_k
+            U_k = 1.0 / np.real(e_k)
+            U.append(U_k)
+
+        # Step 3: Update transmit precoders V
+        V_new = []
+        total_power = 0
+        for k in range(K):
+            Hk = H_HAT[k]
+            W_k = W[k]
+            U_k = U[k]
+            A = np.zeros((Nt, Nt), dtype=complex)
+            b = np.zeros((Nt, 1), dtype=complex)
+            for j in range(K):
+                Hj = H_HAT[j]
+                W_j = W[j]
+                U_j = U[j]
+                A += U_j * Hj.conj().T @ W_j @ W_j.conj().T @ Hj
+                if j == k:
+                    b += U_j * Hj.conj().T @ W_j
+            # Regularization for numerical stability
+            A += 1e-8 * np.eye(Nt)
+            v_k = np.linalg.solve(A, b)
+            V_new.append(v_k)
+            total_power += np.linalg.norm(v_k)**2
+
+        # Normalize to meet power constraint
+        scaling = np.sqrt(Pt / total_power)
+        V_new = [scaling * v_k for v_k in V_new]
+
+        # Check convergence
+        norm_diffs = [float(np.linalg.norm(V[k] - V_new[k])) for k in range(K)]
+        if max(norm_diffs) < tol:
+            break
+
+    # Compute sum rate
+    sum_rate = 0
+    for k in range(K):
+        Hk = H_HAT[k]
+        v_k = V[k]
+        interf = sigma2 * np.eye(Nr, dtype=complex)
+        for j in range(K):
+            if j != k:
+                interf += Hk @ V[j] @ V[j].conj().T @ Hk.conj().T
+        signal = v_k.conj().T @ Hk.conj().T @ np.linalg.inv(interf) @ Hk @ v_k
+        sum_rate += np.log2(1 + np.real(signal.item()))
+    return V, sum_rate

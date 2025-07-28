@@ -2,9 +2,15 @@ from variables import GlobalConstants, VariablesA, VariablesB, initialize_t
 from functions import modified_update_B_loop_robust, update_B_loop_robust_stableB,update_B_loop_robust, compute_rate_test, compute_rate_over, compute_g1_k_QT
 from functions import * 
 import numpy as np
+from scipy.io import loadmat
 def test_update_B_loop():
+    Delta_k = loadmat("Delta_k.mat")
+    Delta_k = Delta_k["Delta_k"] 
+    H = loadmat("H_HAT.mat") 
+    H = H['H_HAT']
     # === Setup constants and variables
-    constants = GlobalConstants(snr_db=0, snrest_db=-5, Nt=32, Nr=2, K=2, Pt=1)
+    constants = GlobalConstants(snr_db=-3, snrest_db=5, Nt=32, Nr=2, K=2, Pt=1, Pin=0.75, H_HAT=H[0])
+
     A_robust = VariablesA(constants)
     B_robust = VariablesB(constants)
 
@@ -16,12 +22,9 @@ def test_update_B_loop():
     # B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2 = update_B_loop_robust(
     B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2, _,_, v_traj= modified_update_B_loop_robust(
     # B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2= update_B_loop_robust_stableB(
-        A_robust, B_robust, constants, max_outer_iter=2000, outer_tol=1e-4, max_inner_iter=2000,inner_tol=1e-3, robust=True
+        A_robust, B_robust, constants, max_outer_iter=5000, outer_tol=1e-6, max_inner_iter=2000,inner_tol=1e-3, robust=True
     )
 
-    # === Evaluate final rate
-    robust_rate_in, rob_var = compute_rate_test(A_robust, B_robust, constants, samp=10000)
-    robust_rate_over = compute_rate_over(A_robust, B_robust, constants)
 
     print("=== NONROBUST ===")
     A_nonrobust = VariablesA(constants)
@@ -31,20 +34,16 @@ def test_update_B_loop():
                                         max_outer_iter=1000, outer_tol=1e-3, 
                                         max_inner_iter=1000, inner_tol=1e-3, 
                                         robust=False)
-    nonrobust_rate_in, non_var = compute_rate_test(A_nonrobust, B_nonrobust, constants, samp=10000)
-    nonrobust_rate_over = compute_rate_over(A_nonrobust, B_nonrobust, constants)
 
-    worst_robust = compute_rate_worst(A_robust,B_robust,constants)
-    worst_nonrobust = compute_rate_worst(A_robust,B_nonrobust,constants)
-
-    perfect_robust = compute_rate_perfect(A_robust, B_robust, constants)
-    # perfect_random = compute_rate_random(A_robust, B_robust, constants)
-    perfect_nonrobust = compute_rate_perfect(A_nonrobust, B_nonrobust, constants)
-    print(f"final robust rate: mean={robust_rate_in:.6e}, var={rob_var:.6e}, worst={worst_robust:.6e}, perfect={perfect_robust:.6e}")
-    print(f"final robust over region rate: {robust_rate_over:.6e}")
-    print(f"final nonrobust rate: mean={nonrobust_rate_in:.6e}, var={non_var:.6e}, worst={worst_nonrobust:.6e}, perfect={perfect_nonrobust:.6e}")
-    print(f"final nonrobust over region rate: {nonrobust_rate_over:.6e}")
-    # print(f"random precoder rate: {perfect_random:.6e}")
+    V_wmmse, rate = wmmse_sum_rate(constants, max_iter=1000, tol=1e-4)
+    B_wmmse = VariablesB(constants)
+    B_wmmse.V = V_wmmse
+    # Rate calculation
+    r_m, r_v = compute_rate_test(A_robust, B_robust, constants, Delta_k, samp=1000)
+    n_m, n_v = compute_rate_test(A_nonrobust, B_nonrobust, constants, Delta_k, samp=1000)
+    w_m, w_v = compute_rate_test(A_nonrobust, B_wmmse, constants, Delta_k, samp=1000)
+    print(f"mean: robust={r_m:.6e}, non={n_m}, wmmse={w_m}")
+    print(f"var: robust={r_v:.6e}, non={n_v}, wmmse={w_v}")
     # === KKT Condition Check ===
     alpha_final = alpha_trajectory[-1]
     beta_final = beta_trajectory[-1]
@@ -68,7 +67,7 @@ def test_update_B_loop():
     import matplotlib.ticker as mticker
     
     plt.figure() 
-    plt.plot(range(1, len(lagrangian_B_trajectory)+1), lagrangian_B_trajectory )
+    plt.plot(range(1, len(lagrangian_B_trajectory)+1-10), lagrangian_B_trajectory[10:] )
     plt.xlabel('Outer iteration')
     plt.ylabel('Lagrangian Value')
     plt.title('Algorithm 2 (B Update) Lagrangian Trajectory')

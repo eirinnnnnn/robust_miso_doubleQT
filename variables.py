@@ -1,8 +1,9 @@
 import numpy as np
 from functions import compute_g1_k, generate_delta_within_ellipsoid 
 from scipy.stats import chi2
+from scipy.io import loadmat
 class GlobalConstants:
-    def __init__(self, snr_db=10, snrest_db=11, Nt=4, Nr=4, K=4, Pt=16):
+    def __init__(self, H_HAT, snr_db=10, snrest_db=11, Nt=4, Nr=4, K=4, Pt=16, Pin=0.9, h_hat_id=-1, ):
         self.NT = Nt
         self.NR = Nr
         self.K = K
@@ -13,15 +14,22 @@ class GlobalConstants:
 
         self.SNREST_DB = snrest_db
         self.SIGMAEST = (10 ** (-snrest_db / 20))
-        r2 = chi2.ppf(0.9, df=Nt*Nr*2)
+        r2 = chi2.ppf(Pin, df=Nt*Nr*2)
 
         # Generate K channel realizations
-        self.H_HAT = []
-        for _ in range(K):
-            h_real = np.random.normal(0, 1/np.sqrt(2), (Nr, Nt))
-            h_imag = np.random.normal(0, 1/np.sqrt(2), (Nr, Nt))
-            self.H_HAT.append(h_real + 1j * h_imag)
-        self.H_HAT = np.array(self.H_HAT)  # shape (K, Nr, Nt)
+        # self.H_HAT = []
+        # for _ in range(K):
+        #     h_real = np.random.normal(0, 1/np.sqrt(2), (Nr, Nt))
+        #     h_imag = np.random.normal(0, 1/np.sqrt(2), (Nr, Nt))
+        #     self.H_HAT.append(h_real + 1j * h_imag)
+        # self.H_HAT = np.array(self.H_HAT)  # shape (K, Nr, Nt)
+        if h_hat_id==-1:
+            H_HAT = loadmat("H_HAT.mat") 
+            H_HAT = H_HAT['H_HAT'][h_hat_id]
+            self.H_HAT = H_HAT
+            # print(H_HAT.shape)
+        else:
+            self.H_HAT = H_HAT
 
         # self.B = np.eye(Nt * Nr) * (1 + 1 / self.SIGMAEST**2) / r2
         # self.B = np.eye(Nt * Nr)  / (self.SIGMAEST**2) 
@@ -73,8 +81,8 @@ class VariablesA:
 class VariablesB:
     def __init__(self, constants: GlobalConstants):
         self.LAMB = np.ones(constants.K)
-        self.ALPHA = 0.1 
-        self.BETA = 1 
+        self.ALPHA = 5 
+        self.BETA = 5 
         self.t = 0
 
         self.W = [np.random.randn(constants.NR, 1) + 1j*np.random.randn(constants.NR, 1) for _ in range(constants.K)]

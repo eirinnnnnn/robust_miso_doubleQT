@@ -1,9 +1,10 @@
 import numpy as np
 from functions import compute_g1_k, generate_delta_within_ellipsoid
 from scipy.stats import chi2
+from scipy.io import loadmat
 
 class GlobalConstants:
-    def __init__(self, snr_db=10, snrest_db=11, Nt=4, Nr=4, K=4, Pt=16):
+    def __init__(self, snr_db=10, snrest_db=11, Nt=4, Nr=4, K=4, Pt=16, Pin=0.9, h_hat_id=0):
         self.NT = Nt
         self.NR = Nr
         self.K = K
@@ -15,17 +16,21 @@ class GlobalConstants:
         self.SNREST_DB = snrest_db
         self.SIGMAEST = 10 ** (-snrest_db / 20)
 
-        r2 = chi2.ppf(0.9, df=Nt * Nr * 2)
+        r2 = chi2.ppf(Pin, df=Nt * Nr * 2)
         self.eps = (1 + 1 / self.SIGMAEST**2) / r2
         self.B = self.eps * np.eye(Nt * Nr)
         self.Binv = np.eye(Nt * Nr) / self.eps
 
         # Generate K estimated channels \hat{H}_k
-        self.H_HAT = np.array([
-            np.random.normal(0, 1 / np.sqrt(2), (Nr, Nt)) +
-            1j * np.random.normal(0, 1 / np.sqrt(2), (Nr, Nt))
-            for _ in range(K)
-        ])
+        # self.H_HAT = np.array([
+        #     np.random.normal(0, 1 / np.sqrt(2), (Nr, Nt)) +
+        #     1j * np.random.normal(0, 1 / np.sqrt(2), (Nr, Nt))
+        #     for _ in range(K)
+        # ])
+
+        H_HAT = loadmat("H_HAT.mat") 
+        H_HAT = H_HAT['H_HAT'][h_hat_id]
+        self.H_HAT = H_HAT
 
         print(f"self.eps: {self.eps:.6f}")
 
