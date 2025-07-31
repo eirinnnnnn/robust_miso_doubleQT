@@ -448,6 +448,7 @@ def compute_rate_test(A, B, constants, Delta_k, samp=1000):
     Load the mismatch from generated samples
     """
     scale = np.sqrt(1/ (1 + 10**(constants.SNREST_DB/10)))
+    # scale = 10**(constants.SNREST_DB/20)
     Nr = constants.NR
     Nt = constants.NT
     sigma2 = constants.SIGMA**2
@@ -728,12 +729,16 @@ def backtracking_line_search_max(obj_fn, grad_fn, x, d, initial_eta=1.0, alpha=1
 
 
 def update_lagrangian_variables(A, B, constants, ite, robust=True):
-    eta_0 = 6e-3 #(snr = 0, snrest>5)
+    eta_0 = 1e-2 #(snr = 0, snrest>5)
+    eta_alpha = eta_0*2
+    eta_beta = eta_0 * 1e-2
     # eta_0 = 2e-2 #(snr=0, snrest=3)
     # eta_0 = 1.5e-3 #(snr=0, snrest=0)
     exp_para=1e-2
     if robust==False:
-        eta_0 = 1e-3
+        eta_0 = 1e-4
+        eta_alpha = eta_0*2
+        eta_beta = eta_0 * 1e-4
 
     # eta = max(eta_0 * 2**(-exp_para*ite), 1e-7)
     # eta = eta_0/np.sqrt(1+ite) 
@@ -792,7 +797,7 @@ def update_lagrangian_variables(A, B, constants, ite, robust=True):
     # eta_alpha = backtracking_line_search_max(obj_alpha, grad_alpha, alpha, d_alpha)
     # eta_alpha = eta
     res_alpha = total_g1 - B.t
-    eta_alpha = eta_0*2 * abs(res_alpha) + 1e-8
+    eta_alpha = eta_alpha * abs(res_alpha) + 1e-8
     # eta_alpha = eta_0*2**(-exp_para*ite)+ 1e-8
 
 
@@ -816,7 +821,7 @@ def update_lagrangian_variables(A, B, constants, ite, robust=True):
     res_beta = Pt - total_power
     # eta_beta = 5e-5 * abs(res_beta) + 1e-8
     # eta_beta = 5e-6*2**(-exp_para*ite)  + 1e-8
-    eta_beta = eta_0*1e-2 * abs(res_beta) + 1e-8
+    eta_beta = eta_beta * abs(res_beta) + 1e-8
 
     # print(f"grad_beta = {d_beta}, eta_beta = {eta_beta}, beta = {beta}")
     # B.BETA = max(1e-3, min(10, B.BETA - eta_beta * d_beta[0]))
@@ -849,64 +854,37 @@ def update_B_loop_robust_stableB(A, B, constants,
     res1 = []
     res2 = []
     converged = False
-    if robust==False:
-        A.Delta = []
-        A.delta = []
-        for _ in range(constants.K):
-            Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
-            A.Delta.append(Delta_k)
-            A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
+    # if robust==False:
+    #     A.Delta = []
+    #     A.delta = []
+    #     for _ in range(constants.K):
+    #         Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
+    #         A.Delta.append(Delta_k)
+    #         A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
 
     for outer_iter in range(max_outer_iter):
 
         if robust:
             A, converged_A = update_A_loop(A, B, constants, inner_tol=inner_tol, max_inner_iter=max_inner_iter)
 
-        # prev_B_lag = None 
-        # for inner_B_iter in range(100):
-        #     # === Step 1: inner w,v update ===
-        #     B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
-        #     # === Step 2: Lagrangian dual variable update ===
-        #     B = update_lagrangian_variables(A, B, constants, outer_iter)
-        #     lag = compute_lagrangian_B(A, B, constants)
-        #     if prev_B_lag is not None:
-        #         delta_outer = abs(lag - prev_B_lag)
-        #         print(f"[{inner_B_iter}]Loop B Lagrangian change = {delta_outer:.6e}")
-        #     prev_B_lag = lag
-        prev_B_lag = None 
-        for inner_B_iter in range(1000):
-            # B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
-            w_k_arr = []
-            v_k_arr = []
-            for k in range(K):
-                w_k = update_w(A, B, constants, k)
-                w_k_arr.append(w_k)
-            B.W = w_k_arr
-            for k in range(K):
-                v_k = update_v(A, B, constants, k)
-                v_k_arr.append(v_k)
-            B.V = v_k_arr
+        w_k_arr = []
+        v_k_arr = []
+        for k in range(K):
+            w_k = update_w(A, B, constants, k)
+            w_k_arr.append(w_k)
+        B.W = w_k_arr
+        for k in range(K):
+            v_k = update_v(A, B, constants, k)
+            v_k_arr.append(v_k)
+        B.V = v_k_arr
 
-            B = update_lagrangian_variables(A, B, constants, outer_iter, robust)
-            lag = compute_lagrangian_B(A, B, constants)
-            # lagrangian_trajectory.append(lag)
-
-            if prev_B_lag is not None:
-                delta_B = abs(lag - prev_B_lag)
-                print(f"[{outer_iter}.{inner_B_iter}] ⤷ B Lagrangian change = {delta_B:.6e}")
-                if delta_B < 5e-3:
-                    print(f"    ⤷ Inner B loop converged at {inner_B_iter+1}")
-                    break
-            prev_B_lag = lag
-        else:
-            print(f"⚠️ Inner B loop reached max_inner_iter = {max_inner_iter}")
-
-
+        B = update_lagrangian_variables(A, B, constants, outer_iter, robust)
+        # lag = compute_lagrangian_B(A, B, constants)
+        # lagrangian_trajectory.append(lag)
 
         alpha_trajectory.append(B.ALPHA)  
         beta_trajectory.append(B.BETA)    
         t_trajectory.append(B.t)
-
 
         g_sum = 0
         for k in range(constants.K):
@@ -927,7 +905,7 @@ def update_B_loop_robust_stableB(A, B, constants,
         # === Check convergence ===
         if prev_outer_lagrangian is not None:
             delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
-            print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
+            # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
 
             # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}, alpha = {B.ALPHA}, beta = {B.BETA}")
             if delta_outer < outer_tol:
@@ -963,14 +941,14 @@ def update_B_loop_robust(A, B, constants,
     res1 = []
     res2 = []
     converged = False
-    if robust==False:
-        A.Delta = []
-        A.delta = []
-        for _ in range(constants.K):
-            Delta_k = np.zeros((constants.NR, constants.NT)) 
-            # Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
-            A.Delta.append(Delta_k)
-            A.delta.append(Delta_k.reshape(-1, 1))  
+    # if robust==False:
+    #     A.Delta = []
+    #     A.delta = []
+    #     for _ in range(constants.K):
+    #         Delta_k = np.zeros((constants.NR, constants.NT)) 
+    #         # Delta_k = generate_delta_within_ellipsoid(constants.NR, constants.NT, constants.B) 
+    #         A.Delta.append(Delta_k)
+    #         A.delta.append(Delta_k.reshape(-1, 1))  
     for outer_iter in range(max_outer_iter):
         # === Step 1: inner w,v update ===
         B, gamma_history, _, sinr_history = inner_update_w_v(A, B, constants, max_iter=max_inner_iter, tol=inner_tol)
@@ -1026,7 +1004,7 @@ import copy
 def modified_update_B_loop_robust(A, B, constants, 
                          outer_tol=1e-6, max_outer_iter=100, 
                          inner_tol=1e-4, max_inner_iter=500,
-                         robust=True):
+                         robust=True, Delta_k_id=-1):
     """
     Modified outer loop for updating B with convergence monitoring based on:
     - Outer Lagrangian change
@@ -1052,13 +1030,18 @@ def modified_update_B_loop_robust(A, B, constants,
 
     converged = False
 
-    if not robust:
-        A.Delta = []
-        A.delta = []
-        for _ in range(constants.K):
-            Delta_k = generate_delta_within_ellipsoid(Nr, constants.NT, constants.B) 
-            A.Delta.append(Delta_k)
-            A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
+    # if not robust:
+    #     # generate random mismatch for hat_h
+    #     # A.Delta = []
+    #     # A.delta = []
+    #     scale = np.sqrt(1/ (1 + 10**(constants.SNREST_DB/10)))
+    #     A.Delta = loadmat("Delta_k.mat")["Delta_k"][Delta_k_id] * scale
+    #     # A.Delta = scale*np.array([np.random.normal(0, 1/np.sqrt(2), (Nr, constants.Nt)) + 1j * np.random.normal(0, 1/np.sqrt(2), (Nr, constants.Nt)) for _ in range(K)])
+    #     A.delta = [Delta_k.reshape(-1, 1) for Delta_k in A.Delta]
+    #     # for _ in range(constants.K):
+    #         # Delta_k = generate_delta_within_ellipsoid(Nr, constants.NT, constants.B) 
+    #         # A.Delta.append(Delta_k)
+    #         # A.delta.append(Delta_k.reshape(-1, 1))  # flatten into column
 
     for outer_iter in range(max_outer_iter):
         # === Step 1: inner w,v update ===
@@ -1098,7 +1081,7 @@ def modified_update_B_loop_robust(A, B, constants,
 
         if prev_outer_lagrangian is not None:
             delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
-            # print(f"[{outer_iter}] ΔL = {delta_outer:.2e}, Δv = {delta_v:.2e}, Δδ = {delta_delta:.2e}")
+            print(f"[{outer_iter}] ΔL = {delta_outer:.2e}, Δv = {delta_v:.2e}, Δδ = {delta_delta:.2e}")
             if delta_outer < outer_tol:
                 print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
                 converged = True
@@ -1412,13 +1395,14 @@ def wmmse_sum_rate(constants, max_iter=100, tol=1e-4):
 
     # Compute sum rate
     sum_rate = 0
-    for k in range(K):
-        Hk = H_HAT[k]
-        v_k = V[k]
-        interf = sigma2 * np.eye(Nr, dtype=complex)
-        for j in range(K):
-            if j != k:
-                interf += Hk @ V[j] @ V[j].conj().T @ Hk.conj().T
-        signal = v_k.conj().T @ Hk.conj().T @ np.linalg.inv(interf) @ Hk @ v_k
-        sum_rate += np.log2(1 + np.real(signal.item()))
-    return V, sum_rate
+    # for k in range(K):
+    #     Hk = H_HAT[k]
+    #     v_k = V[k]
+    #     interf = sigma2 * np.eye(Nr, dtype=complex)
+    #     for j in range(K):
+    #         if j != k:
+    #             interf += Hk @ V[j] @ V[j].conj().T @ Hk.conj().T
+    #     signal = v_k.conj().T @ Hk.conj().T @ np.linalg.inv(interf) @ Hk @ v_k
+    #     sum_rate += np.log2(1 + np.real(signal.item()))
+    return V
+    # return V, sum_rate

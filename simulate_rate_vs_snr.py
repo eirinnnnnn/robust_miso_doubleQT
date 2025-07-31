@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from variables import GlobalConstants, VariablesA, VariablesB, initialize_t
-from functions import modified_update_B_loop_robust, update_B_loop_robust, compute_outage_rate, compute_rate_test, wmmse_sum_rate
+from functions import modified_update_B_loop_robust, update_B_loop_robust, update_B_loop_robust_stableB, compute_rate_test, wmmse_sum_rate
 
 # def run_simulation_noabort(snr_db_range, n_realizations=5):
 #     robust_rates = []
@@ -84,24 +84,25 @@ def run_simulation(snr_db_range, n_realizations=5):
 
         n_valid = 0
         n_abort = 0
-
+        i = 0
         print(f"\n>>> SNR = {snr_db} dB <<<")
-        for i in range(n_realizations):
+        while i < (n_realizations):
             # print(f"  [Realization {i+1}/{n_realizations}]")
             print(f"  [{snr_db}dB Realization {i+1}/{n_realizations}]")
             try:
                 # print(H[i].shape)
-                constants = GlobalConstants(snr_db=snr_db, snrest_db=5, Nt=32, Nr=2, K=2, Pt=1,Pin=0.75, H_HAT = H[i], h_hat_id=i)
+                constants = GlobalConstants(snr_db=0, snrest_db=snr_db, Nt=32, Nr=2, K=2, Pt=1,Pin=0.75, H_HAT = H[i], h_hat_id=i)
 
                 # Robust setup
-                A_robust = VariablesA(constants)
+                A_robust = VariablesA(constants, delta_k_id = i)
                 B_robust = VariablesB(constants)
                 B_robust = initialize_t(A_robust, B_robust, constants)
                 # B_robust, _, _, _ = update_B_loop_robust(A_robust, B_robust, constants,
                 #                                          max_outer_iter=2000, outer_tol=1e-3,
                 #                                          max_inner_iter=1000, inner_tol=1e-3,
                 #                                          robust=True)
-                B_robust, _,_,_,_,_,_,_,_,_ = modified_update_B_loop_robust(A_robust, B_robust, constants, 
+                # B_robust, _,_,_,_,_,_,_,_,_ = modified_update_B_loop_robust(A_robust, B_robust, constants, 
+                B_robust, _,_,_,_,_,_= update_B_loop_robust_stableB(A_robust, B_robust, constants,
                                                max_outer_iter=3500, outer_tol=1e-6, 
                                                max_inner_iter=1000, inner_tol=1e-3, 
                                                robust=True)
@@ -112,24 +113,26 @@ def run_simulation(snr_db_range, n_realizations=5):
                         raise ValueError("Invalid v_n in robust design")
 
                 # Non-robust setup
-                A_nonrobust = VariablesA(constants)
+                A_nonrobust = VariablesA(constants, delta_k_id = i)
                 B_nonrobust = VariablesB(constants)
                 B_nonrobust = initialize_t(A_nonrobust, B_nonrobust, constants)
-                B_nonrobust, _, _, _,_,_,_ = update_B_loop_robust(A_nonrobust, B_nonrobust, constants,
-                                                            max_outer_iter=2000, outer_tol=1e-3,
+                # B_nonrobust, _, _, _,_,_,_ = update_B_loop_robust(A_nonrobust, B_nonrobust, constants,
+                # B_nonrobust, _,_,_,_,_,_,_,_,_ = modified_update_B_loop_robust(A_nonrobust, B_nonrobust, constants, 
+                B_nonrobust, _,_,_,_,_,_= update_B_loop_robust_stableB(A_nonrobust, B_nonrobust, constants,
+                                                            max_outer_iter=1000, outer_tol=5e-4,
                                                             max_inner_iter=1000, inner_tol=1e-3,
                                                             robust=False)
 
                 for v in B_nonrobust.V:
                     if np.linalg.norm(v) < 1e-8 or not np.all(np.isfinite(v)):
                         raise ValueError("Invalid v_n in nonrobust design")
-                V_wmmse, rate = wmmse_sum_rate(constants, max_iter=1000, tol=1e-4)
+                V_wmmse = wmmse_sum_rate(constants, max_iter=1000, tol=1e-5)
                 B_wmmse = VariablesB(constants)
                 B_wmmse.V = V_wmmse
                 # Rate calculation
-                r_m, r_v = compute_rate_test(A_robust, B_robust, constants, Delta_k, samp=1000)
-                n_m, n_v = compute_rate_test(A_nonrobust, B_nonrobust, constants, Delta_k, samp=1000)
-                w_m, w_v = compute_rate_test(A_nonrobust, B_wmmse, constants, Delta_k, samp=1000)
+                r_m, r_v = compute_rate_test(A_robust, B_robust, constants, Delta_k, samp=5000)
+                n_m, n_v = compute_rate_test(A_nonrobust, B_nonrobust, constants, Delta_k, samp=5000)
+                w_m, w_v = compute_rate_test(A_nonrobust, B_wmmse, constants, Delta_k, samp=5000)
                 print(f"mean: robust={r_m:.6e}, non={n_m:.6e}, wmmse={w_m:.6e}")
                 print(f"var: robust={r_v:.6e}, non={n_v:.6e}, wmmse={w_v:.6e}")
 
@@ -141,12 +144,11 @@ def run_simulation(snr_db_range, n_realizations=5):
                 avg_wmmse_rate += w_m
                 avg_wmmse_var += w_v
                 n_valid += 1
-
+                i += 1
             except Exception as e:
                 print(f"  ❌ Aborted realization due to: {e}")
-                # n_abort += 1
-                i = i-1
-                continue
+                n_abort += 1
+                # i = i-1
 
         print(f"✔️ Valid realizations = {n_valid}, ❌ Aborted = {n_abort}")
         if n_valid > 0:
@@ -172,7 +174,7 @@ def run_simulation(snr_db_range, n_realizations=5):
             wmmse_rates.append(0)
             wmmse_rates_var.append(0)
 
-    return robust_rates, nonrobust_rates, robust_rates_var, nonrobust_rates_var
+    return robust_rates, nonrobust_rates, robust_rates_var, nonrobust_rates_var, wmmse_rates, wmmse_rates_var
 
 def plot_rate_vs_snr(snr_db_range, robust_rates, nonrobust_rates, wmmse_rates):
     plt.figure()
@@ -213,8 +215,8 @@ def plot_rate_vs_snr_var(snr_db_range, robust_rates, nonrobust_rates, wmmse_rate
 
 
 if __name__ == "__main__":
-    snr_db_range = np.arange(-3, 4, 1)
+    snr_db_range = np.arange(0, 11, 2)
     # snrest_db_range = np.arange(-3, 11, 2)
-    robust_rates, nonrobust_rates, robust_rates_var, nonrobust_rates_var, w_m, w_v = run_simulation(snr_db_range, n_realizations=25)
+    robust_rates, nonrobust_rates, robust_rates_var, nonrobust_rates_var, w_m, w_v = run_simulation(snr_db_range, n_realizations=100)
     plot_rate_vs_snr(snr_db_range, robust_rates, nonrobust_rates, w_m)
     plot_rate_vs_snr_var(snr_db_range, robust_rates_var, nonrobust_rates_var, w_v)

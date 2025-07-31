@@ -9,9 +9,9 @@ def test_update_B_loop():
     H = loadmat("H_HAT.mat") 
     H = H['H_HAT']
     # === Setup constants and variables
-    constants = GlobalConstants(snr_db=-3, snrest_db=5, Nt=32, Nr=2, K=2, Pt=1, Pin=0.75, H_HAT=H[0])
+    constants = GlobalConstants(snr_db=0, snrest_db=-5, Nt=32, Nr=2, K=2, Pt=1, Pin=0.75, H_HAT=H[0], h_hat_id=0)
 
-    A_robust = VariablesA(constants)
+    A_robust = VariablesA(constants, 0)
     B_robust = VariablesB(constants)
 
     # === First solve A inner loop (initialize t)
@@ -20,30 +20,32 @@ def test_update_B_loop():
     # === Run Algorithm 2 (B update)
     print("=== ROBUST ===")
     # B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2 = update_B_loop_robust(
-    B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2, _,_, v_traj= modified_update_B_loop_robust(
-    # B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2= update_B_loop_robust_stableB(
-        A_robust, B_robust, constants, max_outer_iter=5000, outer_tol=1e-6, max_inner_iter=2000,inner_tol=1e-3, robust=True
+    # B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2, _,_, v_traj= modified_update_B_loop_robust(
+    B_robust, lagrangian_B_trajectory, alpha_trajectory, beta_trajectory , t_trajectory, res1, res2= update_B_loop_robust_stableB(
+        A_robust, B_robust, constants, max_outer_iter=5000, outer_tol=1e-1, max_inner_iter=2000,inner_tol=1e-4, robust=True
     )
 
 
     print("=== NONROBUST ===")
-    A_nonrobust = VariablesA(constants)
+    A_nonrobust = VariablesA(constants, 0)
     B_nonrobust = VariablesB(constants)
     B_nonrobust = initialize_t(A_nonrobust, B_nonrobust, constants)
     B_nonrobust, non_robust_lag,_,_,_,_,_ = update_B_loop_robust(A_nonrobust, B_nonrobust, constants, 
+    # B_nonrobust, non_robust_lag,_,_,_,_,_ = update_B_loop_robust_stableB(A_nonrobust, B_nonrobust, constants, 
+    # B_nonrobust, non_robust_lag,_,_,_,_,_,_,_,_ = modified_update_B_loop_robust(A_nonrobust, B_nonrobust, constants, 
                                         max_outer_iter=1000, outer_tol=1e-3, 
                                         max_inner_iter=1000, inner_tol=1e-3, 
                                         robust=False)
 
-    V_wmmse, rate = wmmse_sum_rate(constants, max_iter=1000, tol=1e-4)
+    V_wmmse = wmmse_sum_rate(constants, max_iter=1000, tol=1e-4)
     B_wmmse = VariablesB(constants)
     B_wmmse.V = V_wmmse
     # Rate calculation
-    r_m, r_v = compute_rate_test(A_robust, B_robust, constants, Delta_k, samp=1000)
-    n_m, n_v = compute_rate_test(A_nonrobust, B_nonrobust, constants, Delta_k, samp=1000)
-    w_m, w_v = compute_rate_test(A_nonrobust, B_wmmse, constants, Delta_k, samp=1000)
-    print(f"mean: robust={r_m:.6e}, non={n_m}, wmmse={w_m}")
-    print(f"var: robust={r_v:.6e}, non={n_v}, wmmse={w_v}")
+    r_m, r_v = compute_rate_test(A_robust, B_robust, constants, Delta_k, samp=5000)
+    n_m, n_v = compute_rate_test(A_nonrobust, B_nonrobust, constants, Delta_k, samp=5000)
+    w_m, w_v = compute_rate_test(A_nonrobust, B_wmmse, constants, Delta_k, samp=5000)
+    print(f"mean: robust={r_m:.6e}, non={n_m:.6e}, wmmse={w_m:.6e}")
+    print(f"var: robust={r_v:.6e}, non={n_v:.6e}, wmmse={w_v:.6e}")
     # === KKT Condition Check ===
     alpha_final = alpha_trajectory[-1]
     beta_final = beta_trajectory[-1]
@@ -67,7 +69,7 @@ def test_update_B_loop():
     import matplotlib.ticker as mticker
     
     plt.figure() 
-    plt.plot(range(1, len(lagrangian_B_trajectory)+1-10), lagrangian_B_trajectory[10:] )
+    plt.plot(range(1, len(lagrangian_B_trajectory)+1-100), lagrangian_B_trajectory[100:] )
     plt.xlabel('Outer iteration')
     plt.ylabel('Lagrangian Value')
     plt.title('Algorithm 2 (B Update) Lagrangian Trajectory')
