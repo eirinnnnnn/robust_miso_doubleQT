@@ -442,7 +442,7 @@ def compute_rate_test_random(A, B, constants, samp=1000):
     return np.mean(rate), np.var(rate)
 
 from scipy.io import loadmat
-def compute_rate_test(A, B, constants, Delta_k, samp=1000):
+def compute_rate_test(A, B, constants, Delta_k, samp=1000, outage_percentile=5):
     """
     Compute the rate R_k for user k given current A (delta) and B (precoders).
     Load the mismatch from generated samples
@@ -476,7 +476,7 @@ def compute_rate_test(A, B, constants, Delta_k, samp=1000):
             SINR_numerator = np.real(SINR_numerator.item())  
 
             rate.append(np.log2(1 + SINR_numerator))
-    return np.mean(rate), np.var(rate)
+    return np.mean(rate), np.var(rate), np.percentile(rate, outage_percentile)
 
 def compute_rate_k(A, B, constants, k):
     """
@@ -727,11 +727,37 @@ def backtracking_line_search_max(obj_fn, grad_fn, x, d, initial_eta=1.0, alpha=1
             break
     return eta
 
+def update_lagrangian_variables_maxmin(A, B, constants, ite, robust=True):
+    eta_0 = 1e-1 #(snr = 0, snrest>5)
+    eta_beta = eta_0
+    # if robust==False:
+    #     eta_0 = 1e-4
+    #     eta_alpha = eta_0*2
+    #     eta_beta = eta_0 * 1e-4
+
+    K = constants.K
+    Pt = constants.PT
+
+    sigma2 = constants.SIGMA**2
+    beta = B.BETA
+
+    def lagrangian(B_local):
+        return compute_lagrangian_B_maxmin(A, B_local, constants)
+
+    total_power = sum(np.linalg.norm(B.V[k])**2 for k in range(K))
+
+    d_beta = np.array([(Pt - total_power)])
+    res_beta = Pt - total_power
+    eta_beta = eta_beta * abs(res_beta) + 1e-8
+
+    B.BETA = max(0, beta - eta_beta * d_beta[0])
+
+    return B
 
 def update_lagrangian_variables(A, B, constants, ite, robust=True):
     eta_0 = 1e-2 #(snr = 0, snrest>5)
     eta_alpha = eta_0*2
-    eta_beta = eta_0 * 1e-2
+    eta_beta = eta_0 * 2e-2
     # eta_0 = 2e-2 #(snr=0, snrest=3)
     # eta_0 = 1.5e-3 #(snr=0, snrest=0)
     exp_para=1e-2
@@ -832,7 +858,74 @@ def update_lagrangian_variables(A, B, constants, ite, robust=True):
 
     return B
 
+def update_B_loop_robust_maxmin(A, B, constants, 
+                         outer_tol=1e-6, max_outer_iter=100, 
+                         inner_tol=1e-4, max_inner_iter=500,
+                         robust = True):
+    """
+    Outer loop for updating B (V, Lambda, t, alpha, beta).
+    Logs alpha and beta values to inspect KKT conditions.
+    """
 
+    K = constants.K
+    Nr = constants.NR
+    Pt = constants.PT
+
+    prev_outer_lagrangian = None
+    lagrangian_trajectory = []
+    alpha_trajectory = []  
+    beta_trajectory = []   
+    t_trajectory = []   
+    res1 = []
+    res2 = []
+    converged = False
+    for outer_iter in range(max_outer_iter):
+
+        if robust:
+            A, converged_A = update_A_loop(A, B, constants, inner_tol=inner_tol, max_inner_iter=max_inner_iter)
+
+        w_k_arr = []
+        v_k_arr = []
+        for k in range(K):
+            w_k = update_w(A, B, constants, k)
+            w_k_arr.append(w_k)
+        B.W = w_k_arr
+        for k in range(K):
+            v_k = update_v(A, B, constants, k)
+            v_k_arr.append(v_k)
+        B.V = v_k_arr
+
+        B = update_lagrangian_variables_maxmin(A, B, constants, outer_iter, robust)
+        beta_trajectory.append(B.BETA)    
+
+        slack_pwr =  constants.PT - sum(np.linalg.norm(B.V[k]) ** 2 for k in range(constants.K)) 
+
+        res2.append(slack_pwr)
+
+        current_outer_lagrangian = compute_lagrangian_B_maxmin(A, B, constants)
+        lagrangian_trajectory.append(current_outer_lagrangian)
+
+        # === Check convergence ===
+        if prev_outer_lagrangian is not None:
+            delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
+            # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
+            # print(f"slk_pwr = {slack_pwr:.6e}, beta = {B.BETA:.6e}")
+
+            # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}, alpha = {B.ALPHA}, beta = {B.BETA}")
+            if delta_outer < outer_tol:
+                print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
+                converged = True
+                break
+
+        prev_outer_lagrangian = current_outer_lagrangian
+
+    if not converged:
+        print(f"⚠️ Outer loop reached max iterations without full convergence.")
+
+    return B, lagrangian_trajectory, alpha_trajectory, beta_trajectory, t_trajectory, res1, res2
+
+ddelta_k = loadmat("Delta_k.mat")
+ddelta_k = ddelta_k["Delta_k"] 
 def update_B_loop_robust_stableB(A, B, constants, 
                          outer_tol=1e-6, max_outer_iter=100, 
                          inner_tol=1e-4, max_inner_iter=500,
@@ -905,11 +998,16 @@ def update_B_loop_robust_stableB(A, B, constants,
         # === Check convergence ===
         if prev_outer_lagrangian is not None:
             delta_outer = abs(current_outer_lagrangian - prev_outer_lagrangian)
+            if (robust == False):
+                n_m, n_v, n_o = compute_rate_test(A, B, constants, ddelta_k, samp=1000)
+                print(f"rate = {n_m:.6e}, slk_pwr = {slack_pwr:.6e}")
             # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}")
 
             # print(f"[{outer_iter}]Outer Lagrangian change = {delta_outer:.6e}, alpha = {B.ALPHA}, beta = {B.BETA}")
             if delta_outer < outer_tol:
                 print(f"✅ Outer loop converged at iteration {outer_iter+1}.")
+                n_m, n_v, n_o = compute_rate_test(A, B, constants, ddelta_k, samp=1000)
+                print(f"final rate = {n_m:.6e}, slk_pwr = {slack_pwr:.6e}")
                 converged = True
                 break
 
@@ -1156,6 +1254,32 @@ def compute_g1_k_QT(A, B, constants, k):
 
     return log_term - penalty_term
 
+def compute_lagrangian_B_maxmin(A, B, constants):
+    """
+    Compute the full Lagrangian L2 for B update.
+    """
+
+    K = constants.K
+    Pt = constants.PT
+    sigma2 = constants.SIGMA**2
+
+    beta = B.BETA
+    lamb = B.LAMB
+
+    total_g1 = 0
+    for k in range(K):
+        total_g1 = 0
+        for k in range(K):
+            g1_k = compute_g1_k(A, B, constants, k)
+            total_g1 += g1_k
+
+    # === Power penalty term
+    total_power = sum(np.linalg.norm(B.V[k])**2 for k in range(K))
+
+    # === Full Lagrangian
+    lagrangian =  total_g1  + beta * (Pt - total_power)
+
+    return lagrangian
 def compute_lagrangian_B(A, B, constants):
     """
     Compute the full Lagrangian L2 for B update.
@@ -1263,7 +1387,7 @@ def inner_update_w_v(A, B, constants, max_iter=1000000, tol=1e-5):
     return B, gamma_history, signal_log, sinr_history
 
 
-def compute_outage_rate(A, B, constants, outage_percentile=5):
+def compute_outage_rate(A, B, constants, Delta_k,outage_percentile=5, samp=10000):
     """
     Compute 5%-outage rate over all samples and all users.
 
@@ -1277,17 +1401,19 @@ def compute_outage_rate(A, B, constants, outage_percentile=5):
     Returns:
         outage_rate: scalar value of the 5%-percentile sum rate across samples
     """
+    scale = np.sqrt(1/ (1 + 10**(constants.SNREST_DB/10)))
     Nr = constants.NR
     Nt = constants.NT
     sigma2 = constants.SIGMA**2
     rate = 0
-    samp = 1000
+    # samp = 1000
     all_sum_rate = []
+    sum_rate = 0
 
     for _ in range(samp):
         for k in range(constants.K):
             H_hat_k = constants.H_HAT[k]
-            delta_k = generate_delta_within_ellipsoid(Nr, Nt, constants.B) 
+            delta_k = scale*Delta_k[samp][k]
             H_k = H_hat_k + delta_k  # effective channel
 
             V = B.V  # list of v_n
@@ -1305,7 +1431,7 @@ def compute_outage_rate(A, B, constants, outage_percentile=5):
             rate += np.log2(1 + SINR_numerator)
             sum_rate += rate
 
-            all_sum_rate.append(sum_rate)
+        all_sum_rate.append(sum_rate)
 
     # Compute outage percentile
     outage_rate = np.percentile(all_sum_rate, outage_percentile)

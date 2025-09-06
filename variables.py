@@ -40,7 +40,7 @@ class GlobalConstants:
 
         # self.B = np.eye(Nt * Nr)*10000 
         
-        print(f"self.eps: {self.eps}")
+        # print(f"self.eps: {self.eps}")
 
 
 class VariablesA:

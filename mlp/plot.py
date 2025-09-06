@@ -1,0 +1,74 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.io import loadmat
+
+# Load results
+data = loadmat('rates.mat')
+
+# SNR values used in simulation
+snr_db_range = data['snr_db_range']  # Should match your simulation
+
+# Helper to average over users (axis=-1)
+def avg_over_users(arr):
+    arr = np.array(arr)
+    if arr.ndim == 2:
+        return np.mean(arr, axis=1)
+    elif arr.ndim == 1:
+        return arr
+    else:
+        return np.mean(arr, axis=-1)
+
+# Extract and average metrics
+r_m = avg_over_users(data['r_m'])      # robust mean rate
+n_m = avg_over_users(data['n_m'])      # nonrobust mean rate
+w_m = avg_over_users(data['w_m'])      # wmmse mean rate
+z_m = avg_over_users(data['z_m'])      # zf mean rate
+
+r_v = avg_over_users(data['r_v'])      # robust rate variance
+n_v = avg_over_users(data['n_v'])      # nonrobust rate variance
+w_v = avg_over_users(data['w_v'])      # wmmse rate variance
+z_v = avg_over_users(data['z_v'])      # zf rate variance
+
+r_o = avg_over_users(data['r_o'])      # robust outage rate
+n_o = avg_over_users(data['n_o'])      # nonrobust outage rate
+w_o = avg_over_users(data['w_o'])      # wmmse outage rate
+z_o = avg_over_users(data['z_o'])      # zf outage rate
+
+plt.figure(figsize=(8,5))
+plt.plot(snr_db_range, r_m, 'o-', label='Robust')
+plt.plot(snr_db_range, n_m, 's-', label='Nonrobust')
+plt.plot(snr_db_range, w_m, '^-', label='WMMSE')
+plt.plot(snr_db_range, z_m, 'd-', label='ZF')
+plt.xlabel('SNR$_{est}$ (dB)')
+plt.ylabel('Average Rate (bps/Hz)')
+plt.title('Mean Rate vs SNR')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.savefig('mean_rate_vs_snr.png')
+
+plt.figure(figsize=(8,5))
+plt.plot(snr_db_range, r_v, 'o-', label='Robust')
+plt.plot(snr_db_range, n_v, 's-', label='Nonrobust')
+plt.plot(snr_db_range, w_v, '^-', label='WMMSE')
+plt.plot(snr_db_range, z_v, 'd-', label='ZF')
+plt.xlabel('SNR$_{est}$ (dB)')
+plt.ylabel('Rate Variance')
+plt.title('Rate Variance vs SNR')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.savefig('rate_variance_vs_snr.png')
+
+plt.figure(figsize=(8,5))
+plt.plot(snr_db_range, r_o, 'o-', label='Robust')
+plt.plot(snr_db_range, n_o, 's-', label='Nonrobust')
+plt.plot(snr_db_range, w_o, '^-', label='WMMSE')
+plt.plot(snr_db_range, z_o, 'd-', label='ZF')
+plt.xlabel('SNR$_{est}$ (dB)')
+plt.ylabel('Outage Rate')
+plt.title('Outage Rate vs SNR')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.savefig('outage_rate_vs_snr.png')

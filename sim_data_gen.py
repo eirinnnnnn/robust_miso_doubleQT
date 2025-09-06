@@ -36,16 +36,15 @@ print("Non-robust mean rates (n_m):", data['n_m'].flatten())
 print("Non-robust rate variances (n_v):", data['n_v'].flatten())
 print("WMMSE mean rates (w_m):", data['w_m'].flatten())
 print("WMMSE rate variances (w_v):", data['w_v'].flatten())
+print("Robust outage rates (r_o):", data['r_o'].flatten())
+print("Non-robust outage rates (n_o):", data['n_o'].flatten())
+print("WMMSE outage rates (w_o):", data['w_o'].flatten())
 
-# ...existing code...
 
 import matplotlib.pyplot as plt
 
-# SNR range for x-axis
-snr_db_range = np.arange(0, 11, 2)  
+snr_db_range = np.arange(0, 10, 2)  
 nm = data['n_m'].flatten()
-nm[1] = 1.5
-nm[2] = 1.55
 # Plot mean rates
 plt.figure()
 plt.plot(snr_db_range, data['r_m'].flatten(), marker='o', label='Robust Design')
@@ -71,3 +70,15 @@ plt.grid(True)
 plt.legend()
 plt.tight_layout()
 plt.savefig('var.png')
+
+plt.figure()
+plt.plot(snr_db_range, data['r_o'].flatten(), marker='o', label='Robust Design')
+plt.plot(snr_db_range, data['n_o'].flatten(), marker='s', label='Non-Robust Design')
+plt.plot(snr_db_range, data['w_o'].flatten(), marker='^', label='WMMSE')
+plt.xlabel('SNRest (dB)')
+plt.ylabel('Outage Rate (bps/Hz)')
+plt.title('5% Outage Rate vs. SNRest')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.savefig('outage.png')
