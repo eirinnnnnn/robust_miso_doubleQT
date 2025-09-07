@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 
 # Load the .mat file
+# data = loadmat('rates_snrest_snr5.mat')
 data = loadmat('rates.mat')
 
 # Extract arrays and convert to numpy arrays for easy slicing
