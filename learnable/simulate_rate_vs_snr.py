@@ -53,7 +53,8 @@ def run_simulation(snr_db_range, n_realizations=5):
             print(f"  [{snr_db}dB Realization {i+1}/{n_realizations}]")
             try:
                 # print(H[i].shape)
-                constants = GlobalConstants(snr_db=5, snrest_db=[snr_db, snr_db], Nt=32, Nr=2, K=2, Pt=2, Pin=0.75, H_HAT=H[i+1], h_hat_id=i+1)
+                # constants = GlobalConstants(snr_db=5, snrest_db=[snr_db, snr_db], Nt=32, Nr=2, K=2, Pt=2, Pin=0.75, H_HAT=H[i+1], h_hat_id=i+1)
+                constants = GlobalConstants(snr_db=snr_db, snrest_db=[5, 5], Nt=32, Nr=2, K=2, Pt=2, Pin=0.75, H_HAT=H[i], h_hat_id=i)
         
 
                 # Robust setup
@@ -170,7 +171,8 @@ def run_simulation(snr_db_range, n_realizations=5):
 
 
 if __name__ == "__main__":
-    snr_db_range = np.arange(-30, 31, 5)
+    # snr_db_range = np.arange(-30, 31, 5)
+    snr_db_range = np.arange(-10, 21, 5)
     # snrest_db_range = np.arange(-3, 11, 2)
     r_m, n_m, r_v, n_v, w_m, w_v, r_o, n_o, w_o = run_simulation(snr_db_range, n_realizations=50)
     print("Robust mean rates (r_m):", r_m)

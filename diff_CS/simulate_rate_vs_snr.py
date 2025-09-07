@@ -47,8 +47,8 @@ def run_simulation(snr_db_range, n_realizations=5):
             try:
                 # print(H[i].shape)
                 # constants = GlobalConstants(snr_db=0, snrest_db=[0, snr_db], Nt=32, Nr=2, K=2, Pt=1,Pin=0.75, H_HAT = H[i], h_hat_id=i)
-                constants = GlobalConstants(snr_db=snr_db, snrest_db=[5, 5], Nt=32, Nr=2, K=2, Pt=2, Pin=0.75, H_HAT=H[i], h_hat_id=i)
-                # constants = GlobalConstants(snr_db=5, snrest_db=[snr_db, snr_db], Nt=32, Nr=2, K=2, Pt=2, Pin=0.75, H_HAT=H[i], h_hat_id=i)
+                # constants = GlobalConstants(snr_db=snr_db, snrest_db=[5, 5], Nt=32, Nr=2, K=2, Pt=2, Pin=0.75, H_HAT=H[i], h_hat_id=i)
+                constants = GlobalConstants(snr_db=5, snrest_db=[snr_db, snr_db], Nt=32, Nr=2, K=2, Pt=2, Pin=0.75, H_HAT=H[i], h_hat_id=i)
 
                 # Robust setup
                 A_robust = VariablesA(constants, delta_k_id = i)
@@ -149,10 +149,10 @@ def run_simulation(snr_db_range, n_realizations=5):
 
 
 if __name__ == "__main__":
-    # snr_db_range = np.arange(-10, 31, 5)
-    snr_db_range = np.arange(-10, 11, 5)
+    snr_db_range = np.arange(-10, 31, 5)
+    # snr_db_range = np.arange(-10, 11, 5)
     # snrest_db_range = np.arange(-3, 11, 2)
-    r_m, n_m, r_v, n_v, w_m, w_v, r_o, n_o, w_o = run_simulation(snr_db_range, n_realizations=50)
+    r_m, n_m, r_v, n_v, w_m, w_v, r_o, n_o, w_o = run_simulation(snr_db_range, n_realizations=100)
     print("Robust mean rates (r_m):", r_m)
     # print("Robust rate variances (r_v):", r_v)
     # print("Non-robust mean rates (n_m):", n_m)

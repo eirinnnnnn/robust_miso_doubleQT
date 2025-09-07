@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 
 # Load results
-data = loadmat('rates_snr_snrest5_learnable.mat')
-dataorig = loadmat('rates_snr_snrest5_diffCS.mat')
+data = loadmat('rates_snrest_snr5_learnable.mat')
+dataorig = loadmat('rates_snrest_snr5_diffCS.mat')
 
 # SNR values used in simulation
 # snr_db_range = np.arange(-21, 1, 3)  # Should match your simulation
@@ -41,17 +41,17 @@ z_o = avg_over_users(data['z_o'])      # zf outage rate
 
 plt.figure(figsize=(8,5))
 plt.plot(snr_db_range, r_m, 'o-', label='Robust')
-plt.plot(snr_db_range[:5], r_m_o, 'o-', label='Naive Robust')
+plt.plot(snr_db_range[4:], r_m_o, 'o-', label='Naive Robust')
 plt.plot(snr_db_range, n_m, 's-', label='Nonrobust')
 # plt.plot(snr_db_range, w_m, '^-', label='WMMSE')
 plt.plot(snr_db_range, z_m, 'd-', label='ZF')
-plt.xlabel('SNR$}$ (dB)')
+plt.xlabel('SNR$_{est}$ (dB)')
 plt.ylabel('Average Rate (bps/Hz)')
 plt.title('Mean Rate vs SNR')
 plt.grid(True)
 plt.legend()
 plt.tight_layout()
-plt.savefig('mean_rate_vs_snr.png')
+plt.savefig('mean_rate_vs_snrest.png')
 
 # plt.figure(figsize=(8,5))
 # plt.plot(snr_db_range, r_v, 'o-', label='Robust')
@@ -68,14 +68,14 @@ plt.savefig('mean_rate_vs_snr.png')
 
 plt.figure(figsize=(8,5))
 plt.plot(snr_db_range, r_o, 'o-', label='Robust')
-plt.plot(snr_db_range[:5], r_o_o, 'o-', label='Naive Robust')
+plt.plot(snr_db_range[4:], r_o_o, 'o-', label='Naive Robust')
 plt.plot(snr_db_range, n_o, 's-', label='Nonrobust')
 plt.plot(snr_db_range, w_o, '^-', label='WMMSE')
 plt.plot(snr_db_range, z_o, 'd-', label='ZF')
-plt.xlabel('SNR$$ (dB)')
+plt.xlabel('SNR$_{est}$ (dB)')
 plt.ylabel('Outage Rate')
 plt.title('Outage Rate vs SNR')
 plt.grid(True)
 plt.legend()
 plt.tight_layout()
-plt.savefig('outage_rate_vs_snr.png')
+plt.savefig('outage_rate_vs_snrest.png')

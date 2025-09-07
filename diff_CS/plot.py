@@ -4,7 +4,7 @@ from scipy.io import loadmat
 
 # Load the .mat file
 # data = loadmat('rates_snrest_snr5.mat')
-data = loadmat('rates.mat')
+data = loadmat('rates_snrest_snr5_diffCS.mat')
 
 # Extract arrays and convert to numpy arrays for easy slicing
 r_m = np.array(data['r_m'])  # shape: (num_snr, K)
